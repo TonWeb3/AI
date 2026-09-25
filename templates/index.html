@@ -821,23 +821,55 @@ function markField(k) {
 
 async function saveSettings() {
   const changes = {};
+  let modelChanged = false;
   for (const fl of FIELDS) {
     if (DIRTY[fl.key]) {
       const el = $('fld_' + fl.key);
       changes[fl.key] = fl.type === 'bool' ? el.checked : fl.type === 'int' ? parseInt(el.value) : fl.type === 'float' ? parseFloat(el.value) : el.value;
+      if (fl.key === 'model_id' || fl.key === 'tokenizer_id') modelChanged = true;
     }
   }
-  $('saveMsg').textContent = 'Saving…';
-  const r = await fetch('/api/settings', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ changes })
-  }).then(x => x.json());
-  if (r.ok) {
-    $('saveMsg').textContent = 'Saved successfully! ' + (r.restart_required.length ? '(Restart required)' : '');
-    setTimeout(loadSettings, 1000);
-  } else {
-    $('saveMsg').textContent = 'Error saving settings';
+  $('saveMsg').textContent = modelChanged ? 'Saving & downloading model weights from Hugging Face… (please wait)' : 'Saving…';
+  $('bSave').disabled = true;
+
+  try {
+    const r = await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ changes })
+    }).then(x => x.json());
+
+    if (r.ok) {
+      if (r.restart_required && r.restart_required.length) {
+        const msg = r.downloaded_model ? `Saved & '${r.downloaded_model}' downloaded!` : 'Saved successfully!';
+        $('saveMsg').innerHTML = `<span class="up">${msg}</span> <button class="btn ok" style="margin-left:10px; padding:3px 10px; font-size:11px;" onclick="restartBot()">↺ Restart Bot with New Settings</button>`;
+      } else {
+        $('saveMsg').textContent = 'Saved successfully!';
+        setTimeout(loadSettings, 1000);
+      }
+    } else {
+      $('saveMsg').innerHTML = `<span class="dn">${esc(r.error || 'Error saving settings')}</span>`;
+      $('bSave').disabled = false;
+    }
+  } catch (err) {
+    $('saveMsg').innerHTML = `<span class="dn">Request failed: ${esc(err.message)}</span>`;
+    $('bSave').disabled = false;
+  }
+}
+
+async function restartBot() {
+  $('saveMsg').textContent = 'Restarting bot and loading model…';
+  try {
+    const r = await fetch('/api/restart', { method: 'POST' }).then(x => x.json());
+    if (r.ok) {
+      $('saveMsg').textContent = 'Bot restarted successfully!';
+      setTimeout(loadSettings, 1200);
+      setTimeout(() => go('dash'), 1500);
+    } else {
+      $('saveMsg').innerHTML = `<span class="dn">Restart failed: ${esc(r.error || 'unknown')}</span>`;
+    }
+  } catch (err) {
+    $('saveMsg').innerHTML = `<span class="dn">Restart error: ${esc(err.message)}</span>`;
   }
 }
 

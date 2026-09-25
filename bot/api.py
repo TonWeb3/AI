@@ -180,12 +180,36 @@ async def api_settings_save(payload: dict = Body(...)):
         setattr(CFG, k, v)
     path = CFG.save()
     pending = _restart_pending()
+
+    # If model_id or tokenizer_id changed, download the new weights immediately
+    downloaded_model = None
+    if "model_id" in applied or "tokenizer_id" in applied:
+        target_model = getattr(CFG, "model_id")
+        target_tok = getattr(CFG, "tokenizer_id")
+        log.info("Model configuration updated. Pre-downloading '%s' and '%s'...", target_model, target_tok)
+        try:
+            from .engine import ensure_weights
+            await asyncio.to_thread(ensure_weights, target_model, target_tok)
+            downloaded_model = target_model
+            log.info("New model weights downloaded successfully.")
+        except Exception as e:
+            log.error("Failed to download new model weights: %s", e)
+            return {
+                "ok": False,
+                "saved": path,
+                "applied": list(applied),
+                "error": f"Settings saved to config.json, but model download failed: {e}",
+                "restart_required": [k for k in applied if k in pending],
+                "restart_pending": pending,
+            }
+
     return {
         "ok": True,
         "saved": path,
         "applied": list(applied),
+        "downloaded_model": downloaded_model,
         "restart_required": [k for k in applied if k in pending],
-        "restart_pending": pending
+        "restart_pending": pending,
     }
 
 
@@ -198,6 +222,14 @@ async def api_restart(force: bool = False):
         BOT_TASK.cancel()
         with contextlib.suppress(asyncio.CancelledError, Exception):
             await BOT_TASK
+
+    # Ensure model weights are ready for the active CFG before starting bot
+    try:
+        from .engine import ensure_weights
+        await asyncio.to_thread(ensure_weights, CFG.model_id, CFG.tokenizer_id)
+    except Exception as e:
+        log.warning("Could not pre-verify weights on restart: %s", e)
+
     BOT = Bot()
     BOOT_CFG = _snapshot()
     BOT_TASK = asyncio.create_task(BOT.run(), name="bot")

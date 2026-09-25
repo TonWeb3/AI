@@ -20,7 +20,28 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
+from bot import WEIGHTS_DIR
+
 log = logging.getLogger(__name__)
+
+
+def ensure_weights(model_id: str, tokenizer_id: str, cache_dir: str = WEIGHTS_DIR, verbose: bool = True) -> bool:
+    """Pre-downloads and verifies that tokenizer and model weights exist in cache_dir.
+    Uses snapshot_download for reliable, resumable downloads with progress.
+    """
+    from huggingface_hub import snapshot_download
+    os.makedirs(cache_dir, exist_ok=True)
+    if verbose:
+        print(f"Ensuring model weights in {cache_dir}...")
+        print(f"  Fetching tokenizer: {tokenizer_id}")
+    snapshot_download(repo_id=tokenizer_id, cache_dir=cache_dir)
+    if verbose:
+        print(f"  Fetching model:     {model_id}")
+    snapshot_download(repo_id=model_id, cache_dir=cache_dir)
+    if verbose:
+        print("  Model weights verified successfully.\n")
+    return True
+
 
 KRONOS_COLS = ["open", "high", "low", "close", "volume", "amount"]
 
@@ -178,8 +199,9 @@ class KronosEngine:
         self.max_context = max_context
 
         t0 = time.time()
-        tokenizer = KronosTokenizer.from_pretrained(tokenizer_id)
-        model = Kronos.from_pretrained(model_id)
+        ensure_weights(model_id, tokenizer_id, cache_dir=WEIGHTS_DIR, verbose=False)
+        tokenizer = KronosTokenizer.from_pretrained(tokenizer_id, cache_dir=WEIGHTS_DIR)
+        model = Kronos.from_pretrained(model_id, cache_dir=WEIGHTS_DIR)
         model.eval()
         self.predictor = KronosPredictor(model, tokenizer, device=device,
                                          max_context=max_context, clip=clip)

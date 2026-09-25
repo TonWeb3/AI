@@ -13,9 +13,11 @@ import os
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WEIGHTS_DIR = os.path.join(ROOT, "model", "weights")
 
-os.environ.setdefault("HF_HOME", WEIGHTS_DIR)
+# Force HF_HOME to the repository's model/weights folder so models always save locally
+os.environ["HF_HOME"] = WEIGHTS_DIR
 # Windows without Developer Mode cannot create the symlinks the HF cache
 # normally uses; it falls back to real copies and warns loudly. Silence it.
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 
 os.makedirs(WEIGHTS_DIR, exist_ok=True)
+

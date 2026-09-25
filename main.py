@@ -58,7 +58,20 @@ def main() -> None:
             print(f"  - {e}")
         raise SystemExit(1)
     print("  config OK\n")
+
+    from bot.engine import ensure_weights
+
+    print(f"  Verifying & downloading model weights for '{CFG.model_id}'...")
+    try:
+        ensure_weights(CFG.model_id, CFG.tokenizer_id)
+        print("  Model weights verified & ready.\n")
+    except Exception as e:
+        print(f"\n  ERROR: Failed to download model weights: {e}")
+        print("  Please check your internet connection or Hugging Face access.\n")
+        raise SystemExit(1)
+
     if a.check:
+        print("  all checks passed (config & model verified).\n")
         return
 
     if CFG.mode == "real":
