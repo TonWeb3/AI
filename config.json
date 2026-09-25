@@ -1,0 +1,45 @@
+{
+  "deriv": {
+    "app_id": "33LuGFJlOlfbqzHVZLFCi",
+    "token": "pat_b7ec71179e3e627146c2e14d05a677747432720bce15478b8d47313998872175",
+    "mode": "demo"
+  },
+  "market": {
+    "symbol": "R_100",
+    "entry_tf": "5m",
+    "regime_tf": "30m"
+  },
+  "kronos": {
+    "model_id": "NeoQuasar/Kronos-mini",
+    "tokenizer_id": "NeoQuasar/Kronos-Tokenizer-2k",
+    "device": "auto",
+    "max_context": 512,
+    "lookback": 240,
+    "entry_pred_len": 20,
+    "regime_pred_len": 24,
+    "n_paths": 24,
+    "n_paths_regime": 16,
+    "max_batch": 64,
+    "temperature": 1.0,
+    "top_p": 0.9,
+    "top_k": 0
+  },
+  "strategy": {
+    "min_prob": 0.58,
+    "require_regime_agree": true,
+    "min_regime_prob": 0.50,
+    "risk_type": "percent",
+    "risk_value": 10.0,
+    "currency": "USD",
+    "max_concurrent": 1,
+    "cooldown_bars": 1,
+    "max_trades_per_day": 20,
+    "max_daily_loss_usd": 50.0
+  },
+  "infra": {
+    "db_path": "kronos_deriv.db",
+    "host": "0.0.0.0",
+    "port": 8120,
+    "log_level": "INFO"
+  }
+}

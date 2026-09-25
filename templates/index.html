@@ -1,0 +1,865 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#06171d">
+<title>Kronos AI · Deriv Rise/Fall</title>
+<style>
+:root {
+  --bg: #06171d;
+  --surface: #0a222a;
+  --surface2: #0c2a33;
+  --raise: #133945;
+  --line: #1a4d5a;
+  --line2: #246576;
+  --txt: #e2f1f5;
+  --mut: #82a8b3;
+  --dim: #4d7580;
+  --cyan: #00e5ff;
+  --cyan-dim: #00363d;
+  --up: #10b981;
+  --up-dim: #064e3b;
+  --dn: #f43f5e;
+  --dn-dim: #4c0519;
+  --warn: #f59e0b;
+  --r: 12px;
+  --r-sm: 8px;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--txt);
+  font: 14px/1.5 var(--sans);
+  background-image:
+    radial-gradient(1000px 500px at 10% -5%, #0d3640 0%, transparent 60%),
+    radial-gradient(900px 450px at 100% 0%, #082930 0%, transparent 50%);
+  background-attachment: fixed;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+/* ---------- Header ---------- */
+header {
+  position: sticky; top: 0; z-index: 60; display: flex; align-items: center; gap: 12px;
+  padding: 10px 18px; background: rgba(6, 23, 29, 0.92); backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--line); flex-wrap: wrap;
+}
+.brand { display: flex; align-items: center; gap: 9px; font-weight: 750; font-size: 15px; color: var(--cyan); letter-spacing: 0.5px; }
+.brand i { width: 9px; height: 9px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 10px var(--cyan); display: inline-block; }
+.brand i.on { background: var(--up); box-shadow: 0 0 10px var(--up); animation: pulse 2s infinite; }
+.brand i.err { background: var(--dn); box-shadow: 0 0 10px var(--dn); }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+.chips { display: flex; gap: 7px; align-items: center; flex-wrap: wrap; }
+.chip {
+  padding: 3px 9px; border-radius: 99px; background: var(--surface2);
+  border: 1px solid var(--line); color: var(--mut); font-size: 11px; font-family: var(--mono);
+}
+.chip.mode-demo { background: rgba(245, 158, 11, 0.15); border-color: rgba(245, 158, 11, 0.4); color: #fbbf24; }
+.chip.mode-real { background: rgba(244, 63, 94, 0.2); border-color: rgba(244, 63, 94, 0.5); color: #fda4af; }
+.chip.cyan { background: var(--cyan-dim); border-color: var(--line2); color: var(--cyan); font-weight: 600; }
+.chip.online { border-color: rgba(16, 185, 129, 0.4); color: #34d399; }
+.chip.offline { border-color: rgba(244, 63, 94, 0.4); color: #f87171; }
+
+.spacer { flex: 1 1 auto; }
+nav { display: flex; gap: 4px; background: var(--surface2); padding: 3px; border-radius: 99px; border: 1px solid var(--line); }
+nav button {
+  background: none; border: 0; color: var(--mut); font: 600 12px var(--sans);
+  padding: 5px 14px; border-radius: 99px; cursor: pointer; transition: 0.15s;
+}
+nav button.on { background: var(--raise); color: var(--txt); box-shadow: 0 0 0 1px var(--line2); }
+nav button:hover { color: var(--txt); }
+
+.acts { display: flex; gap: 8px; }
+button.btn {
+  background: var(--surface2); color: var(--txt); border: 1px solid var(--line2);
+  border-radius: var(--r-sm); padding: 6px 14px; cursor: pointer; font: 600 12px var(--sans);
+  transition: 0.15s; display: inline-flex; align-items: center; gap: 6px;
+}
+button.btn:hover { background: var(--raise); border-color: var(--cyan); }
+button.btn.warn { color: #fbbf24; border-color: #78350f; background: rgba(245, 158, 11, 0.1); }
+button.btn.ok { background: #059669; color: #fff; border-color: #10b981; font-weight: 700; box-shadow: 0 0 10px rgba(16, 185, 129, 0.35); }
+button.btn.ok:hover { background: #10b981; }
+button.btn.err { background: #dc2626; color: #fff; border-color: #ef4444; font-weight: 700; box-shadow: 0 0 10px rgba(239, 68, 68, 0.35); }
+button.btn.err:hover { background: #ef4444; }
+button.btn.primary { background: linear-gradient(180deg, #00b4d8, #0077b6); color: #fff; border-color: #0096c7; }
+
+/* ---------- Main Grid ---------- */
+main { max-width: 1560px; margin: 0 auto; padding: 16px; }
+.grid { display: grid; gap: 14px; grid-template-columns: repeat(12, 1fr); }
+.card {
+  background: linear-gradient(180deg, var(--surface), var(--surface2));
+  border: 1px solid var(--line); border-radius: var(--r); padding: 15px 16px;
+  position: relative; overflow: hidden;
+}
+.card::before {
+  content: ""; position: absolute; inset: 0 0 auto 0; height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(0, 229, 255, 0.4), transparent);
+}
+.card > h2 {
+  font: 600 11px/1 var(--sans); letter-spacing: 1.2px; text-transform: uppercase;
+  color: var(--dim); margin: 0 0 12px; display: flex; align-items: center; gap: 8px;
+}
+.card > h2 .r { margin-left: auto; font-size: 11px; letter-spacing: 0.2px; color: var(--mut); text-transform: none; font-family: var(--mono); }
+.c3 { grid-column: span 3; } .c4 { grid-column: span 4; } .c5 { grid-column: span 5; }
+.c6 { grid-column: span 6; } .c7 { grid-column: span 7; } .c8 { grid-column: span 8; }
+.c12 { grid-column: span 12; }
+@media(max-width: 1100px) { .c3, .c4, .c5 { grid-column: span 6; } .c7, .c8 { grid-column: span 12; } }
+@media(max-width: 760px) {
+  main { padding: 10px; } .grid { gap: 10px; }
+  .c3, .c4, .c5, .c6, .c7, .c8 { grid-column: span 12; }
+  header { padding: 8px 12px; }
+}
+
+/* ---------- Dual Conviction Rings ---------- */
+.signal { display: flex; align-items: center; gap: 16px; }
+.ring { position: relative; width: 92px; height: 92px; flex: none; }
+.ring svg { transform: rotate(-90deg); }
+.ring .lab {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 1px;
+}
+.ring .lab b { font: 700 19px var(--mono); line-height: 1; }
+.ring .lab span { font-size: 9px; color: var(--dim); letter-spacing: 1px; }
+.sigmeta { min-width: 0; flex: 1; }
+.sigdir { font: 800 24px/1.1 var(--sans); letter-spacing: -0.5px; }
+.sigsub { color: var(--mut); font-size: 11.5px; margin-top: 4px; font-family: var(--mono); }
+.bar { height: 5px; border-radius: 99px; background: var(--raise); overflow: hidden; margin-top: 8px; }
+.bar i { display: block; height: 100%; border-radius: 99px; transition: width 0.4s ease; }
+
+/* ---------- Stat Cards ---------- */
+.stat-box { display: flex; flex-direction: column; gap: 4px; }
+.stat-box .title { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--dim); }
+.stat-box .val { font: 700 22px var(--mono); color: var(--txt); }
+.stat-box .sub { font-size: 11px; color: var(--mut); font-family: var(--mono); }
+
+/* ---------- Active Contract Card ---------- */
+.contract-active {
+  background: linear-gradient(135deg, rgba(0, 229, 255, 0.08), rgba(16, 185, 129, 0.08));
+  border: 1px solid rgba(0, 229, 255, 0.4);
+  border-radius: var(--r-sm); padding: 12px 14px; margin-bottom: 12px;
+}
+.contract-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.badge { padding: 2px 8px; border-radius: 99px; font: 700 10px var(--mono); letter-spacing: 0.5px; text-transform: uppercase; }
+.badge.call { background: var(--up-dim); color: #34d399; border: 1px solid var(--up); }
+.badge.put { background: var(--dn-dim); color: #fb7185; border: 1px solid var(--dn); }
+
+/* ---------- 20-Candle Expiry Grid ---------- */
+.pred-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px;
+  max-height: 380px; overflow-y: auto; padding-right: 4px;
+}
+.pred-card {
+  background: #081d24; border: 1px solid var(--line); border-radius: var(--r-sm);
+  padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; transition: 0.15s;
+  position: relative;
+}
+.pred-card:hover { border-color: var(--line2); background: #0c2730; }
+.pred-card.peak {
+  border-color: var(--cyan); background: rgba(0, 229, 255, 0.09);
+  box-shadow: 0 0 14px rgba(0, 229, 255, 0.15);
+}
+.pred-card.peak::after {
+  content: "★ BEST EXPIRY"; position: absolute; top: -6px; right: 6px;
+  font: 700 8px var(--mono); background: var(--cyan); color: #000;
+  padding: 1px 5px; border-radius: 4px;
+}
+.pred-top { display: flex; justify-content: space-between; align-items: center; font-size: 11px; }
+.pred-prob { font: 700 14px var(--mono); }
+.pred-bar { height: 4px; background: rgba(255,255,255,0.08); border-radius: 2px; overflow: hidden; }
+.pred-bar i { display: block; height: 100%; border-radius: 2px; }
+
+/* ---------- Chart ---------- */
+.chartwrap { position: relative; width: 100%; }
+#chart { display: block; width: 100%; height: auto; touch-action: pan-y; }
+.tfbtns { display: flex; gap: 4px; }
+.tfbtns button {
+  background: var(--surface2); border: 1px solid var(--line); color: var(--mut);
+  border-radius: 6px; padding: 2px 10px; font: 600 11px var(--mono); cursor: pointer;
+}
+.tfbtns button.on { background: var(--cyan-dim); border-color: var(--cyan); color: var(--cyan); }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px; color: var(--mut); margin-top: 8px; font-family: var(--mono); }
+.legend b { display: inline-block; width: 12px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+
+/* ---------- Tables ---------- */
+.tw { overflow-x: auto; max-height: 320px; overflow-y: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+th {
+  position: sticky; top: 0; background: var(--surface2); text-align: left; color: var(--dim);
+  font: 600 9.5px var(--sans); letter-spacing: 0.9px; text-transform: uppercase;
+  padding: 8px 10px; border-bottom: 1px solid var(--line); z-index: 2; white-space: nowrap;
+}
+td { padding: 7px 10px; border-bottom: 1px solid rgba(26, 77, 90, 0.4); white-space: nowrap; font-family: var(--mono); font-size: 11.5px; }
+tbody tr:hover { background: rgba(19, 57, 69, 0.4); }
+.empty { color: var(--dim); padding: 20px 4px; text-align: center; font-family: var(--sans); }
+
+/* ---------- Settings Panel ---------- */
+.fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 13px; }
+.f { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.f label { font-size: 11.5px; color: var(--mut); display: flex; align-items: center; gap: 7px; }
+.f .k { font-family: var(--mono); color: var(--txt); font-size: 11.5px; }
+.f .rs { font-size: 8.5px; padding: 1px 6px; border-radius: 99px; background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
+.f .hint { font-size: 10.5px; color: var(--dim); line-height: 1.4; }
+input, select {
+  background: #081d24; border: 1px solid var(--line2); color: var(--txt);
+  border-radius: var(--r-sm); padding: 8px 10px; font: 500 12.5px var(--mono); width: 100%;
+}
+input:focus, select:focus { outline: 0; border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(0, 229, 255, 0.15); }
+.f.dirty input, .f.dirty select { border-color: var(--warn); }
+.banner { padding: 10px 14px; border-radius: var(--r-sm); font-size: 12px; margin-bottom: 12px; }
+.banner.warn { background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.4); color: #fde68a; }
+.banner.err { background: rgba(244, 63, 94, 0.15); border: 1px solid rgba(244, 63, 94, 0.4); color: #fecdd3; }
+.banner.ok { background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.4); color: #a7f3d0; }
+
+.up { color: var(--up); } .dn { color: var(--dn); } .cyan { color: var(--cyan); } .dim { color: var(--dim); }
+.hide { display: none !important; }
+::-webkit-scrollbar { width: 7px; height: 7px; }
+::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand"><i id="dot"></i>KRONOS · DERIV</div>
+  <div class="chips">
+    <span class="chip cyan" id="cSym">R_100</span>
+    <span class="chip mode-demo" id="cMode">DEMO</span>
+    <span class="chip" id="cAcct">Account: —</span>
+    <span class="chip" id="cBal">USD —</span>
+    <span class="chip offline" id="cTradeState" style="font-weight:700; color:#fbbf24;">AUTONOMOUS: STOPPED</span>
+    <span class="chip" id="cWs">Deriv WS: —</span>
+    <span class="chip" id="cNext">Next bar: —</span>
+  </div>
+  <div class="spacer"></div>
+  <nav>
+    <button id="nDash" class="on" onclick="go('dash')">Dashboard</button>
+    <button id="nSet" onclick="go('set')">Settings</button>
+  </nav>
+  <div class="acts">
+    <button class="btn ok" id="bStartStop" onclick="toggleTrading()"><span id="btnIcon">▶</span> <span id="btnLabel">Start</span></button>
+    <button class="btn primary" onclick="location.reload()">Refresh</button>
+  </div>
+</header>
+
+<!-- ============================ DASHBOARD ============================ -->
+<main id="dash">
+  <div id="alerts"></div>
+  <div class="grid">
+
+    <!-- Card 1: 5m Entry Reading & Conviction Ring -->
+    <div class="card c4">
+      <h2>5m Entry Signal &mdash; Peak Expiry <span class="r" id="sigTf">5m</span></h2>
+      <div class="signal">
+        <div class="ring">
+          <svg viewBox="0 0 92 92" width="92" height="92">
+            <circle cx="46" cy="46" r="39" fill="none" stroke="#133945" stroke-width="7"/>
+            <circle id="ringArc" cx="46" cy="46" r="39" fill="none" stroke="#00e5ff"
+              stroke-width="7" stroke-linecap="round" stroke-dasharray="0 999"/>
+          </svg>
+          <div class="lab"><b id="ringPct">—</b><span>PEAK</span></div>
+        </div>
+        <div class="sigmeta">
+          <div class="sigdir" id="sigDir">—</div>
+          <div class="sigsub" id="sigSub">Waiting for 5m forecast…</div>
+          <div class="bar"><i id="sigBar" style="width:0"></i></div>
+          <div id="sigBadge" style="margin-top:8px"></div>
+          <div class="dim" style="font-size:11px; margin-top:6px; font-family:var(--mono);">
+            <span>Selected Expiry: </span><b id="sigExpiryText" style="color:var(--cyan);">Candle #—</b>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Card 2: 30m Macro Regime Reading & Conviction Ring -->
+    <div class="card c4">
+      <h2>30m Macro Regime Filter <span class="r" id="regTf">30m</span></h2>
+      <div class="signal">
+        <div class="ring">
+          <svg viewBox="0 0 92 92" width="92" height="92">
+            <circle cx="46" cy="46" r="39" fill="none" stroke="#133945" stroke-width="7"/>
+            <circle id="regArc" cx="46" cy="46" r="39" fill="none" stroke="#10b981"
+              stroke-width="7" stroke-linecap="round" stroke-dasharray="0 999"/>
+          </svg>
+          <div class="lab"><b id="regPct">—</b><span>REGIME</span></div>
+        </div>
+        <div class="sigmeta">
+          <div class="sigdir" id="regDir">—</div>
+          <div class="sigsub" id="regSub">Monitoring 30m trend…</div>
+          <div class="bar"><i id="regBar" style="width:0"></i></div>
+          <div id="regBadge" style="margin-top:8px"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Card 3: Market & Account KPIs -->
+    <div class="card c4">
+      <h2>Deriv Live Status <span class="r" id="kpiStatus" style="color:var(--warn);">STOPPED</span></h2>
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
+        <div class="stat-box">
+          <span class="title">Live Spot</span>
+          <span class="val cyan" id="kpiSpot">—</span>
+          <span class="sub" id="kpiSym">R_100</span>
+        </div>
+        <div class="stat-box">
+          <span class="title">Today PnL</span>
+          <span class="val" id="kpiPnl">$0.00</span>
+          <span class="sub" id="kpiTrades">0 trades</span>
+        </div>
+        <div class="stat-box">
+          <span class="title">Win Rate</span>
+          <span class="val up" id="kpiWinRate">—</span>
+          <span class="sub" id="kpiRecord">0W / 0L</span>
+        </div>
+        <div class="stat-box">
+          <span class="title">Next Candle</span>
+          <span class="val" id="kpiNextTimer">—</span>
+          <span class="sub">5m Boundary</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Active Contract Real-Time Monitor (Visible when a trade is active) -->
+    <div class="card c12 hide" id="actCard">
+      <h2>Active Deriv Contract <span class="r" id="actStatus">IN PROGRESS</span></h2>
+      <div class="contract-active">
+        <div class="contract-head">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <span class="badge" id="actBadge">CALL</span>
+            <b id="actContractId" class="num" style="font-size:14px;">#—</b>
+            <span class="dim">·</span>
+            <span id="actExpiryTarget" class="num" style="font-size:12px;">Candle #— (—m expiry)</span>
+          </div>
+          <div style="text-align:right;">
+            <span class="dim" style="font-size:11px;">Floating Profit: </span>
+            <b id="actProfit" class="num" style="font-size:16px;">+$0.00</b>
+          </div>
+        </div>
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap:10px; font-size:12px; margin-top:8px;">
+          <div><span class="dim">Entry Spot:</span> <b id="actEntrySpot" class="num">—</b></div>
+          <div><span class="dim">Current Spot:</span> <b id="actCurSpot" class="num cyan">—</b></div>
+          <div><span class="dim">Stake:</span> <b id="actStake" class="num">$—</b></div>
+          <div><span class="dim">Potential Payout:</span> <b id="actPayout" class="num up">$—</b></div>
+          <div><span class="dim">Time Remaining:</span> <b id="actCountdown" class="num warn">—</b></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 20-Candle Expiry Probability Grid -->
+    <div class="card c12">
+      <h2>Deriv Rise &amp; Fall &mdash; 20-Candle Horizon Analysis <span class="r">Highest Probability Expiry Engine</span></h2>
+      
+      <!-- Prominent Expiry Decision Hero Banner -->
+      <div id="expiryHero" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:14px; background:linear-gradient(135deg, rgba(0, 229, 255, 0.12), rgba(16, 185, 129, 0.1)); border:1px solid rgba(0, 229, 255, 0.5); border-radius:var(--r-sm); padding:14px 18px; margin-bottom:14px;">
+        <div style="display:flex; align-items:center; gap:12px;">
+          <div style="background:#081d24; border:1px solid var(--cyan); border-radius:6px; padding:6px 12px; text-align:center;">
+            <div style="font-size:9.5px; text-transform:uppercase; color:var(--dim); letter-spacing:1px;">Selected Expiry</div>
+            <div id="heroCandleNum" style="font:800 20px var(--mono); color:var(--cyan);">Candle #—</div>
+          </div>
+          <div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span id="heroContractBadge" class="badge call" style="font-size:12px; padding:3px 10px;">RISE (CALL)</span>
+              <span id="heroDuration" class="num" style="font-size:15px; font-weight:700;">— min duration</span>
+            </div>
+            <div id="heroReason" class="dim" style="font-size:11.5px; margin-top:3px;">
+              Highest probability peak across the 20-candle horizon.
+            </div>
+          </div>
+        </div>
+        <div style="display:flex; gap:20px; align-items:center;">
+          <div style="text-align:right;">
+            <div style="font-size:10px; text-transform:uppercase; color:var(--dim); letter-spacing:1px;">Peak Probability</div>
+            <div id="heroPeakPct" class="num" style="font-size:24px; font-weight:800; color:var(--up);">—%</div>
+          </div>
+          <div style="text-align:right; border-left:1px solid var(--line); padding-left:16px;">
+            <div style="font-size:10px; text-transform:uppercase; color:var(--dim); letter-spacing:1px;">30m Macro Regime</div>
+            <div id="heroRegimeStatus" class="num" style="font-size:14px; font-weight:700; color:var(--txt);">ALIGNED</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="pred-grid" id="predGrid">
+        <div class="dim" style="padding:20px;">Sampling Monte Carlo trajectories across future candles…</div>
+      </div>
+    </div>
+
+    <!-- SVG Candlestick & Forecast Chart -->
+    <div class="card c8">
+      <h2>
+        5m Candlestick Chart &amp; 20-Candle Forecast Envelope <span class="r">5m Horizon · Rise / Fall</span>
+      </h2>
+      <div class="chartwrap">
+        <svg id="chart" viewBox="0 0 920 380" preserveAspectRatio="none"></svg>
+      </div>
+      <div class="legend">
+        <span><b style="background:#10b981"></b>Bullish Bar</span>
+        <span><b style="background:#f43f5e"></b>Bearish Bar</span>
+        <span><b style="background:#00e5ff"></b>Mean Forecast Path</span>
+        <span><b style="background:#1a4d5a"></b>p10–p90 Uncertainty Band</span>
+        <span class="r" id="chartMeta" style="margin-left:auto;"></span>
+      </div>
+    </div>
+
+    <!-- Recent Decisions Log -->
+    <div class="card c4">
+      <h2>Decisions Log <span class="r" id="decN">0 logged</span></h2>
+      <div class="tw">
+        <table id="decTable">
+          <thead><tr><th>Time</th><th>Signal</th><th>Peak</th><th>Taken</th><th>Reason</th></tr></thead>
+          <tbody id="decBody"><tr><td colspan="5" class="empty">No decisions logged yet</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Trade History Table -->
+    <div class="card c12">
+      <h2>Deriv Trade Execution History <span class="r" id="trdN">0 closed</span></h2>
+      <div class="tw">
+        <table id="trdTable">
+          <thead>
+            <tr><th>Opened</th><th>Contract</th><th>Expiry</th><th>Entry Spot</th><th>Exit Spot</th><th>Stake</th><th>Payout</th><th>Profit</th><th>Status</th></tr>
+          </thead>
+          <tbody id="trdBody"><tr><td colspan="9" class="empty">No trades executed yet</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<!-- ============================ SETTINGS ============================ -->
+<main id="set" class="hide">
+  <div class="card c12">
+    <h2>Deriv Bot Configuration <span class="r">Runtime Parameters</span></h2>
+    <div id="setAlerts"></div>
+    <div id="setBody">Loading settings…</div>
+    <div style="margin-top:20px; display:flex; gap:10px; align-items:center;">
+      <button class="btn primary" id="bSave" onclick="saveSettings()">Save Configuration</button>
+      <button class="btn" onclick="loadSettings()">Reset</button>
+      <span class="dim" id="saveMsg" style="font-family:var(--mono);"></span>
+    </div>
+  </div>
+</main>
+
+<script>
+let VIEW = 'dash';
+let CHART_TF = '5m';
+let LAST_STATE = null;
+
+const $ = id => document.getElementById(id);
+const f = (n, d = 2) => (n == null || !isFinite(n)) ? '—' : Number(n).toFixed(d);
+const esc = s => String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+
+function go(v) {
+  VIEW = v;
+  $('dash').classList.toggle('hide', v !== 'dash');
+  $('set').classList.toggle('hide', v !== 'set');
+  $('nDash').classList.toggle('on', v === 'dash');
+  $('nSet').classList.toggle('on', v === 'set');
+  if (v === 'set') loadSettings();
+}
+
+/* ---------- Ring Rendering ---------- */
+function renderRing(arcId, pctId, dirId, subId, barId, prob, subText) {
+  if (prob == null) {
+    $(pctId).textContent = '—';
+    $(dirId).textContent = '—';
+    $(dirId).style.color = 'var(--dim)';
+    $(subId).textContent = subText || 'Awaiting forecast…';
+    $(arcId).setAttribute('stroke-dasharray', '0 999');
+    return;
+  }
+  const isUp = prob >= 0.5;
+  const conv = Math.max(prob, 1 - prob);
+  const pctStr = (conv * 100).toFixed(0) + '%';
+  $(pctId).textContent = pctStr;
+  $(dirId).textContent = isUp ? 'CALL (Rise)' : 'PUT (Fall)';
+  $(dirId).style.color = isUp ? 'var(--up)' : 'var(--dn)';
+  $(subId).textContent = subText || (isUp ? `Upside ${f(prob * 100, 1)}%` : `Downside ${f((1 - prob) * 100, 1)}%`);
+
+  const C = 2 * Math.PI * 39;
+  const offset = C * conv;
+  $(arcId).setAttribute('stroke-dasharray', `${offset.toFixed(1)} ${C.toFixed(1)}`);
+  $(arcId).setAttribute('stroke', isUp ? '#10b981' : '#f43f5e');
+  $(barId).style.width = pctStr;
+  $(barId).style.background = isUp ? 'var(--up)' : 'var(--dn)';
+}
+
+/* ---------- 20-Candle Grid & Expiry Decision Banner ---------- */
+function renderPredGrid(data, state) {
+  const el = $('predGrid');
+  if (!data || !data.candidates || !data.candidates.length) {
+    el.innerHTML = '<div class="dim" style="padding:20px;">Awaiting Monte Carlo predictions…</div>';
+    return;
+  }
+
+  // Update prominent Expiry Decision Hero banner
+  const peak = data.peak || data.candidates.find(c => c.is_peak) || data.candidates[0];
+  if (peak) {
+    $('heroCandleNum').textContent = `Candle #${peak.candle_index}`;
+    const isCall = peak.direction === 'CALL';
+    $('heroContractBadge').textContent = isCall ? 'RISE (CALL)' : 'FALL (PUT)';
+    $('heroContractBadge').className = `badge ${isCall ? 'call' : 'put'}`;
+    $('heroDuration').textContent = `${peak.expiry_minutes}m Duration`;
+    const pct = (peak.conviction * 100).toFixed(1);
+    $('heroPeakPct').textContent = `${pct}%`;
+    $('heroPeakPct').className = `num ${isCall ? 'up' : 'dn'}`;
+    $('heroReason').textContent = `Optimal expiry selected based on highest peak conviction at ${peak.time_str} (${peak.expiry_minutes}m from entry bar).`;
+  }
+
+  if (state && state.regime_forecast) {
+    const rf = state.regime_forecast;
+    const agree = peak && ((peak.direction === 'CALL' && rf.upside_prob >= 0.5) || (peak.direction === 'PUT' && rf.upside_prob < 0.5));
+    $('heroRegimeStatus').textContent = agree ? 'ALIGNED (' + (rf.confidence * 100).toFixed(0) + '%)' : 'DIVERGENT';
+    $('heroRegimeStatus').style.color = agree ? 'var(--up)' : 'var(--dn)';
+  }
+
+  let h = '';
+  data.candidates.forEach(c => {
+    const isCall = c.direction === 'CALL';
+    const col = isCall ? 'var(--up)' : 'var(--dn)';
+    const pct = (c.conviction * 100).toFixed(0);
+    h += `
+      <div class="pred-card ${c.is_peak ? 'peak' : ''}">
+        <div class="pred-top">
+          <span style="font-weight:700;">Candle #${c.candle_index}</span>
+          <span class="dim">${c.expiry_minutes}m</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; align-items:baseline;">
+          <b style="color:${col}; font-size:13px;">${c.direction}</b>
+          <span class="pred-prob" style="color:${col};">${pct}%</span>
+        </div>
+        <div class="pred-bar">
+          <i style="width:${pct}%; background:${col};"></i>
+        </div>
+        <div class="dim" style="font-size:9.5px; margin-top:2px;">Target: ${c.time_str}</div>
+      </div>
+    `;
+  });
+  el.innerHTML = h;
+}
+
+/* ---------- Chart Rendering ---------- */
+function renderChart(d) {
+  const svg = $('chart');
+  if (!d || !d.hist_ohlcv || !d.hist_ohlcv.length) {
+    svg.innerHTML = '<text x="460" y="190" fill="#4d7580" text-anchor="middle" font-size="13">Awaiting candlestick feed…</text>';
+    return;
+  }
+  const ohlc = d.hist_ohlcv;
+  const nH = ohlc.length;
+  const fcO = d.fc_ohlc || [];
+  const nF = fcO.length;
+  const nT = nH + nF;
+
+  const W = 920, H = 380, PL = 55, PR = 15, PT = 20, PB = 35;
+  const cW = Math.max(2, (W - PL - PR) / nT * 0.7);
+
+  let minP = Infinity, maxP = -Infinity;
+  ohlc.forEach(c => { minP = Math.min(minP, c[2]); maxP = Math.max(maxP, c[1]); });
+  fcO.forEach(c => { minP = Math.min(minP, c[2]); maxP = Math.max(maxP, c[1]); });
+  if (d.fc_min) d.fc_min.forEach(v => minP = Math.min(minP, v));
+  if (d.fc_max) d.fc_max.forEach(v => maxP = Math.max(maxP, v));
+  const pad = (maxP - minP) * 0.06 || 1;
+  minP -= pad; maxP += pad;
+
+  const X = i => PL + (i + 0.5) * ((W - PL - PR) / nT);
+  const Y = p => PT + (maxP - p) / (maxP - minP) * (H - PT - PB);
+
+  let g = '';
+  // Grid lines
+  for (let s = 0; s <= 4; s++) {
+    const p = minP + (maxP - minP) * (s / 4);
+    const y = Y(p);
+    g += `<line x1="${PL}" y1="${y}" x2="${W - PR}" y2="${y}" stroke="#133945" stroke-dasharray="2 3"/>`;
+    g += `<text x="${PL - 6}" y="${y + 4}" fill="#4d7580" font-size="9" text-anchor="end" font-family="ui-monospace">${f(p, 2)}</text>`;
+  }
+
+  // Forecast uncertainty band
+  if (d.fc_lo && d.fc_hi && d.fc_lo.length) {
+    const ptsUp = d.fc_hi.map((v, i) => `${X(nH + i).toFixed(1)},${Y(v).toFixed(1)}`).join(' ');
+    const ptsDn = d.fc_lo.slice().reverse().map((v, i) => `${X(nH + d.fc_lo.length - 1 - i).toFixed(1)},${Y(v).toFixed(1)}`).join(' ');
+    g += `<polygon points="${ptsUp} ${ptsDn}" fill="#00e5ff" opacity="0.12"/>`;
+  }
+
+  // Separator between history and forecast
+  if (nF > 0) {
+    const sepX = X(nH - 0.5).toFixed(1);
+    g += `<line x1="${sepX}" y1="${PT}" x2="${sepX}" y2="${H - PB}" stroke="#00e5ff" stroke-dasharray="3 3" opacity="0.4"/>`;
+  } else if (d.forecast_pending) {
+    g += `<text x="${W - PR - 10}" y="${PT + 16}" fill="#00e5ff" font-size="10" text-anchor="end" font-family="ui-monospace" opacity="0.85">⚡ Generating 20-candle Monte Carlo envelope…</text>`;
+    if ($('chartMeta')) $('chartMeta').textContent = 'Computing 20-candle Monte Carlo forecast…';
+  }
+
+  // Historical Candles
+  ohlc.forEach((c, i) => {
+    const [o, h, l, cl] = c;
+    const up = cl >= o;
+    const col = up ? '#10b981' : '#f43f5e';
+    const x = X(i);
+    const yO = Y(o), yC = Y(cl);
+    const top = Math.min(yO, yC);
+    const hgt = Math.max(1.5, Math.abs(yC - yO));
+    g += `<line x1="${x.toFixed(1)}" y1="${Y(h).toFixed(1)}" x2="${x.toFixed(1)}" y2="${Y(l).toFixed(1)}" stroke="${col}" stroke-width="1"/>`;
+    g += `<rect x="${(x - cW / 2).toFixed(1)}" y="${top.toFixed(1)}" width="${cW.toFixed(1)}" height="${hgt.toFixed(1)}" fill="${col}"/>`;
+  });
+
+  // Projected Hollow Forecast Candles (Highlighting Optimal Peak Expiry Candle)
+  fcO.forEach((c, i) => {
+    const [o, h, l, cl] = c;
+    const isPeak = d.peak_candle === (i + 1);
+    const col = isPeak ? '#00e5ff' : (cl >= o ? '#10b981' : '#f43f5e');
+    const x = X(nH + i);
+    const yO = Y(o), yC = Y(cl);
+    const top = Math.min(yO, yC);
+    const hgt = Math.max(1.5, Math.abs(yC - yO));
+    if (isPeak) {
+      g += `<line x1="${x.toFixed(1)}" y1="${PT}" x2="${x.toFixed(1)}" y2="${H - PB}" stroke="#00e5ff" stroke-dasharray="2 3" opacity="0.6"/>`;
+      g += `<text x="${x.toFixed(1)}" y="${Math.max(13, Y(h) - 5).toFixed(1)}" fill="#00e5ff" font-size="8.5" font-weight="bold" text-anchor="middle" font-family="ui-monospace">★ C#${i+1} (${(i+1)*5}m EXPIRY)</text>`;
+    }
+    g += `<line x1="${x.toFixed(1)}" y1="${Y(h).toFixed(1)}" x2="${x.toFixed(1)}" y2="${Y(l).toFixed(1)}" stroke="${col}" stroke-width="${isPeak ? 2 : 1}" ${isPeak ? '' : 'stroke-dasharray="2 2"'}/>`;
+    g += `<rect x="${(x - cW / 2).toFixed(1)}" y="${top.toFixed(1)}" width="${cW.toFixed(1)}" height="${hgt.toFixed(1)}" fill="${isPeak ? 'rgba(0, 229, 255, 0.16)' : 'none'}" stroke="${col}" stroke-width="${isPeak ? 2 : 1.2}"/>`;
+  });
+
+  // Forecast Mean Line
+  if (d.fc_mean && d.fc_mean.length) {
+    const lastHistClose = ohlc[nH - 1][3];
+    let pathStr = `M${X(nH - 1).toFixed(1)},${Y(lastHistClose).toFixed(1)}`;
+    d.fc_mean.forEach((v, i) => {
+      pathStr += ` L${X(nH + i).toFixed(1)},${Y(v).toFixed(1)}`;
+    });
+    g += `<path d="${pathStr}" fill="none" stroke="#00e5ff" stroke-width="2" stroke-linecap="round"/>`;
+  }
+
+  svg.innerHTML = g;
+  if (d.summary) {
+    $('chartMeta').textContent = `${d.summary.n_paths} paths · median |move| ${f(d.summary.median_abs_move_pct, 2)}%`;
+  }
+}
+
+/* ---------- Data Polling ---------- */
+async function fetchChart() {
+  try {
+    const res = await fetch('/api/chart').then(r => r.json());
+    renderChart(res);
+  } catch (e) {}
+}
+
+async function tick() {
+  if (VIEW !== 'dash') return;
+  try {
+    const [s, preds, st, decs, trds] = await Promise.all([
+      fetch('/api/state').then(r => r.json()),
+      fetch('/api/predictions').then(r => r.json()),
+      fetch('/api/stats').then(r => r.json()),
+      fetch('/api/decisions?limit=30').then(r => r.json()),
+      fetch('/api/trades?limit=30').then(r => r.json()),
+    ]);
+    LAST_STATE = s;
+
+    // Header updates
+    $('cSym').textContent = s.symbol || 'R_100';
+    $('cMode').textContent = (s.mode || 'demo').toUpperCase();
+    $('cMode').className = `chip mode-${s.mode || 'demo'}`;
+    $('cAcct').textContent = `Account: ${s.account_id || '—'}`;
+    $('cBal').textContent = s.balance != null ? `${s.currency || 'USD'} ${Number(s.balance).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}` : 'USD —';
+    $('cWs').textContent = s.connected ? 'Deriv WS: OK' : 'Deriv WS: Reconnecting';
+    $('cWs').className = `chip ${s.connected ? 'online' : 'offline'}`;
+    $('dot').className = s.connected ? 'on' : 'err';
+    $('cNext').textContent = `Next bar: ${Math.floor(s.next_bar_sec / 60)}:${String(Math.floor(s.next_bar_sec % 60)).padStart(2, '0')}`;
+
+    // Start / Stop Button & Status
+    const isTrading = s.trading_enabled;
+    const btn = $('bStartStop');
+    if (btn) {
+      if (isTrading) {
+        btn.className = 'btn err';
+        $('btnIcon').textContent = '■';
+        $('btnLabel').textContent = 'Stop';
+      } else {
+        btn.className = 'btn ok';
+        $('btnIcon').textContent = '▶';
+        $('btnLabel').textContent = 'Start';
+      }
+    }
+    const cState = $('cTradeState');
+    if (cState) {
+      cState.textContent = isTrading ? 'AUTONOMOUS: ACTIVE' : 'AUTONOMOUS: STOPPED';
+      cState.className = `chip ${isTrading ? 'online' : 'offline'}`;
+      cState.style.color = isTrading ? '#34d399' : '#fbbf24';
+    }
+    $('kpiStatus').textContent = isTrading ? 'ACTIVE' : 'STOPPED';
+    $('kpiStatus').style.color = isTrading ? 'var(--up)' : 'var(--warn)';
+
+    // KPI Cards
+    $('kpiSpot').textContent = s.spot != null ? f(s.spot, 3) : '—';
+    $('kpiSym').textContent = s.symbol;
+    $('kpiPnl').textContent = `$${f(s.day_pnl, 2)}`;
+    $('kpiPnl').className = `val ${s.day_pnl >= 0 ? 'up' : 'dn'}`;
+    $('kpiTrades').textContent = `${s.day_trades} trades today`;
+    $('kpiWinRate').textContent = st.win_rate != null ? `${(st.win_rate * 100).toFixed(0)}%` : '—';
+    $('kpiRecord').textContent = `${st.wins || 0}W / ${st.losses || 0}L`;
+    $('kpiNextTimer').textContent = `${Math.floor(s.next_bar_sec / 60)}m ${Math.floor(s.next_bar_sec % 60)}s`;
+
+    // Rings
+    const ef = s.entry_forecast;
+    const rf = s.regime_forecast;
+    if (ef) {
+      renderRing('ringArc', 'ringPct', 'sigDir', 'sigSub', 'sigBar',
+        ef.peak_direction === 'CALL' ? ef.peak_conviction : 1 - ef.peak_conviction,
+        `Candle #${ef.peak_candle} (${ef.peak_expiry_minutes}m) · ${f(ef.peak_conviction * 100, 1)}% conv`);
+      $('sigBadge').innerHTML = ef.peak_conviction >= 0.58
+        ? '<span class="badge call">Clears 58% Threshold</span>'
+        : '<span class="badge put">Sub-Threshold</span>';
+      $('sigExpiryText').textContent = `Candle #${ef.peak_candle} (${ef.peak_expiry_minutes}m duration)`;
+    }
+    if (rf) {
+      renderRing('regArc', 'regPct', 'regDir', 'regSub', 'regBar', rf.upside_prob,
+        `30m Regime · ${f(rf.confidence * 100, 1)}% confidence`);
+      const agree = ef && ((ef.peak_direction === 'CALL' && rf.upside_prob >= 0.5) || (ef.peak_direction === 'PUT' && rf.upside_prob < 0.5));
+      $('regBadge').innerHTML = agree
+        ? '<span class="badge call">Regime Aligned</span>'
+        : '<span class="badge put">Regime Divergent</span>';
+    }
+
+    // Active Contract Card
+    const act = s.active_contract;
+    if (act) {
+      $('actCard').classList.remove('hide');
+      $('actBadge').textContent = act.direction;
+      $('actBadge').className = `badge ${act.direction.toLowerCase()}`;
+      $('actContractId').textContent = `#${act.contract_id}`;
+      $('actExpiryTarget').textContent = `Candle #${act.target_candle} (${act.expiry_minutes}m duration)`;
+      $('actEntrySpot').textContent = f(act.entry_spot, 3);
+      $('actCurSpot').textContent = f(act.current_spot, 3);
+      $('actStake').textContent = `$${f(act.buy_price, 2)}`;
+      $('actPayout').textContent = `$${f(act.payout, 2)}`;
+      $('actProfit').textContent = `${act.profit >= 0 ? '+' : ''}$${f(act.profit, 2)} (${f(act.profit_percentage, 1)}%)`;
+      $('actProfit').className = `num ${act.profit >= 0 ? 'up' : 'dn'}`;
+      const m = Math.floor(act.remaining_sec / 60);
+      const sec = Math.floor(act.remaining_sec % 60);
+      $('actCountdown').textContent = `${m}m ${sec}s`;
+    } else {
+      $('actCard').classList.add('hide');
+    }
+
+    // 20-Candle Expiry Grid
+    renderPredGrid(preds, s);
+
+    // Decision Table
+    $('decN').textContent = `${decs.length} logged`;
+    if (decs && decs.length) {
+      $('decBody').innerHTML = decs.map(r => `
+        <tr>
+          <td>${new Date(r.ts * 1000).toLocaleTimeString()}</td>
+          <td style="color:${r.direction === 'CALL' ? 'var(--up)' : 'var(--dn)'}; font-weight:700;">${r.direction}</td>
+          <td>C#${r.target_candle} (${r.expiry_minutes}m)</td>
+          <td>${r.taken ? '<span class="badge call">YES</span>' : '<span class="badge put">BLOCKED</span>'}</td>
+          <td class="dim" style="font-size:11px;">${esc(r.reason)}</td>
+        </tr>
+      `).join('');
+    }
+
+    // Trade Table
+    $('trdN').textContent = `${trds.length} closed`;
+    if (trds && trds.length) {
+      $('trdBody').innerHTML = trds.map(r => `
+        <tr>
+          <td>${new Date(r.opened_ts * 1000).toLocaleTimeString()}</td>
+          <td><span class="badge ${r.contract_type.toLowerCase()}">${r.contract_type}</span> #${r.contract_id || '—'}</td>
+          <td>C#${r.target_candle} (${r.expiry_minutes}m)</td>
+          <td>${f(r.entry_spot, 3)}</td>
+          <td>${f(r.exit_spot, 3)}</td>
+          <td>$${f(r.stake, 2)}</td>
+          <td>$${f(r.payout, 2)}</td>
+          <td style="color:${r.profit > 0 ? 'var(--up)' : 'var(--dn)'}; font-weight:700;">${r.profit != null ? (r.profit > 0 ? '+' : '') + '$' + f(r.profit, 2) : '—'}</td>
+          <td><span class="badge ${r.status === 'won' ? 'call' : 'put'}">${(r.status || 'open').toUpperCase()}</span></td>
+        </tr>
+      `).join('');
+    }
+  } catch (e) {}
+}
+
+/* ---------- Settings Page ---------- */
+let FIELDS = [], DIRTY = {};
+async function loadSettings() {
+  const r = await fetch('/api/settings').then(x => x.json());
+  FIELDS = r.fields || [];
+  DIRTY = {};
+  $('bSave').disabled = true;
+  const secs = {};
+  for (const fl of FIELDS) (secs[fl.section] = secs[fl.section] || []).push(fl);
+  let html = '';
+  for (const [sec, list] of Object.entries(secs)) {
+    html += `<h3 style="margin:20px 0 10px; color:var(--cyan); font-size:13px; text-transform:uppercase; letter-spacing:1px;">${sec} Settings</h3><div class="fields">`;
+    for (const fl of list) {
+      const id = 'fld_' + fl.key;
+      let input;
+      if (fl.type === 'select') {
+        input = `<select id="${id}" onchange="markField('${fl.key}')">${fl.options.map(o => `<option ${o === fl.value ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
+      } else if (fl.type === 'bool') {
+        input = `<input type="checkbox" id="${id}" ${fl.value ? 'checked' : ''} onchange="markField('${fl.key}')">`;
+      } else {
+        input = `<input id="${id}" type="${fl.type === 'str' ? 'text' : 'number'}" ${fl.type !== 'str' ? 'step="any"' : ''} value="${esc(fl.value)}" oninput="markField('${fl.key}')">`;
+      }
+      html += `<div class="f" id="w_${fl.key}"><label><span class="k">${fl.key}</span>${fl.restart ? '<span class="rs">RESTART</span>' : ''}</label>${input}<span class="hint">${esc(fl.help)}</span></div>`;
+    }
+    html += '</div>';
+  }
+  $('setBody').innerHTML = html;
+}
+
+function markField(k) {
+  DIRTY[k] = true;
+  $('w_' + k).classList.add('dirty');
+  $('bSave').disabled = false;
+}
+
+async function saveSettings() {
+  const changes = {};
+  for (const fl of FIELDS) {
+    if (DIRTY[fl.key]) {
+      const el = $('fld_' + fl.key);
+      changes[fl.key] = fl.type === 'bool' ? el.checked : fl.type === 'int' ? parseInt(el.value) : fl.type === 'float' ? parseFloat(el.value) : el.value;
+    }
+  }
+  $('saveMsg').textContent = 'Saving…';
+  const r = await fetch('/api/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ changes })
+  }).then(x => x.json());
+  if (r.ok) {
+    $('saveMsg').textContent = 'Saved successfully! ' + (r.restart_required.length ? '(Restart required)' : '');
+    setTimeout(loadSettings, 1000);
+  } else {
+    $('saveMsg').textContent = 'Error saving settings';
+  }
+}
+
+async function toggleTrading() {
+  const isRunning = LAST_STATE && LAST_STATE.trading_enabled;
+  if (isRunning) {
+    await fetch('/api/stop', { method: 'POST' });
+  } else {
+    await fetch('/api/start', { method: 'POST' });
+  }
+  await tick();
+}
+
+async function halt() {
+  await toggleTrading();
+}
+
+// Initial load & timers
+fetchChart();
+tick();
+setInterval(tick, 2000);
+setInterval(fetchChart, 10000);
+</script>
+</body>
+</html>
