@@ -62,8 +62,11 @@ async def api_state():
 @app.get("/api/predictions")
 async def api_predictions():
     """Return the step-by-step probability distribution across the 20 future candles."""
-    if BOT is None or BOT.entry_fc is None:
-        return {"ready": False, "candidates": []}
+    if BOT is None:
+        return {"ready": False, "candidates": [], "message": "Bot initializing…"}
+    if BOT.entry_fc is None:
+        msg = BOT.busy or (f"Pending: {BOT.last_error}" if BOT.last_error else "Awaiting 5m candle close & Monte Carlo forecast…")
+        return {"ready": False, "candidates": [], "message": msg, "error": BOT.last_error}
     return {
         "ready": True,
         "symbol": BOT.cfg.symbol,

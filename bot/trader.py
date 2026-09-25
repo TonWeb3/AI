@@ -197,6 +197,12 @@ class Bot:
 
     async def _forecast(self, interval: str, horizon: int, n_paths: int):
         df = self.candles.get(interval)
+        if len(df) < 50:
+            log.warning("Candle context insufficient for %s (%d/50 bars). Retrying backfill...", interval, len(df))
+            await self.candles.backfill()
+            df = self.candles.get(interval)
+            if len(df) < 50:
+                raise ValueError(f"insufficient candle history for {interval}: {len(df)}/50 bars")
         return await asyncio.to_thread(
             self.engine.forecast, df, interval, horizon, n_paths,
             self.cfg.lookback, self.cfg.symbol, self.cfg.temperature,
@@ -205,8 +211,6 @@ class Bot:
 
     async def _regime_loop(self) -> None:
         ev = self.candles.bar_closed[self.cfg.regime_tf]
-        # Allow entry loop preview to execute first on boot
-        await asyncio.sleep(2.0)
         while self.running:
             try:
                 self.busy = "regime forecast"
@@ -228,12 +232,22 @@ class Bot:
     async def _entry_loop(self) -> None:
         ev = self.candles.bar_closed[self.cfg.entry_tf]
 
-        # Startup preview forecast for instant dashboard population
-        try:
-            await self._on_entry_bar(preview=True)
-        except Exception as e:
-            self.last_error = f"startup preview: {e}"
-            log.exception("Startup preview failed")
+        # Startup preview forecast: retry every 5s until Deriv candle feed is ready
+        while self.running and self.entry_fc is None:
+            try:
+                df = self.candles.get(self.cfg.entry_tf)
+                if len(df) >= 50:
+                    await self._on_entry_bar(preview=True)
+                    if self.entry_fc is not None:
+                        break
+                else:
+                    self.busy = f"accumulating candle data ({len(df)}/50 bars)"
+                    log.info("Awaiting sufficient closed candles (%d/50). Retrying backfill...", len(df))
+                    await self.candles.backfill()
+            except Exception as e:
+                self.last_error = f"startup preview: {e}"
+                log.warning("Startup preview pending: %s. Retrying in 5s...", e)
+            await asyncio.sleep(5)
 
         while self.running:
             ev.clear()

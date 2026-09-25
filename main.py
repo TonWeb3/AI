@@ -14,7 +14,9 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import bot
 from bot.config import CONFIG_PATH, CFG
+
 
 
 def banner() -> None:
@@ -65,6 +67,11 @@ def main() -> None:
     try:
         ensure_weights(CFG.model_id, CFG.tokenizer_id)
         print("  Model weights verified & ready.\n")
+    except ModuleNotFoundError as e:
+        print(f"\n  ERROR: Missing required Python dependency: {e.name}")
+        print("  Please install all requirements using:")
+        print("    pip install -r requirements.txt\n")
+        raise SystemExit(1)
     except Exception as e:
         print(f"\n  ERROR: Failed to download model weights: {e}")
         print("  Please check your internet connection or Hugging Face access.\n")
