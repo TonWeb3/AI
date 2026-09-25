@@ -234,6 +234,7 @@ input:focus, select:focus { outline: 0; border-color: var(--cyan); box-shadow: 0
     <span class="chip offline" id="cTradeState" style="font-weight:700; color:#fbbf24;">AUTONOMOUS: STOPPED</span>
     <span class="chip" id="cWs">Deriv WS: —</span>
     <span class="chip" id="cNext">Next bar: —</span>
+    <span class="chip" id="cAiStatus" style="font-family:var(--mono);">AI: Ready</span>
   </div>
   <div class="spacer"></div>
   <nav>
@@ -672,6 +673,22 @@ async function tick() {
     $('dot').className = s.connected ? 'on' : 'err';
     $('cNext').textContent = `Next bar: ${Math.floor(s.next_bar_sec / 60)}:${String(Math.floor(s.next_bar_sec % 60)).padStart(2, '0')}`;
 
+    // AI Status & Error Alert Banner
+    const isBusy = Boolean(s.busy);
+    const cAi = $('cAiStatus');
+    if (cAi) {
+      cAi.textContent = isBusy ? `⚡ AI: ${s.busy}…` : 'AI: Ready';
+      cAi.className = `chip ${isBusy ? 'cyan' : 'online'}`;
+    }
+    const al = $('alerts');
+    if (al) {
+      if (s.last_error) {
+        al.innerHTML = `<div class="banner err" style="margin-bottom:12px;"><b>System Notice:</b> ${esc(s.last_error)}</div>`;
+      } else {
+        al.innerHTML = '';
+      }
+    }
+
     // Start / Stop Button & Status
     const isTrading = s.trading_enabled;
     const btn = $('bStartStop');
@@ -716,6 +733,8 @@ async function tick() {
         ? '<span class="badge call">Clears 58% Threshold</span>'
         : '<span class="badge put">Sub-Threshold</span>';
       $('sigExpiryText').textContent = `Candle #${ef.peak_candle} (${ef.peak_expiry_minutes}m duration)`;
+    } else {
+      $('sigSub').textContent = isBusy ? `⚡ AI calculating: ${s.busy}… (~20s)` : 'Waiting for 5m forecast…';
     }
     if (rf) {
       renderRing('regArc', 'regPct', 'regDir', 'regSub', 'regBar', rf.upside_prob,
@@ -724,6 +743,8 @@ async function tick() {
       $('regBadge').innerHTML = agree
         ? '<span class="badge call">Regime Aligned</span>'
         : '<span class="badge put">Regime Divergent</span>';
+    } else {
+      $('regSub').textContent = isBusy ? '⚡ AI calculating 30m regime…' : 'Monitoring 30m trend…';
     }
 
     // Active Contract Card

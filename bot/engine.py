@@ -10,8 +10,9 @@ import os
 import sys
 import threading
 import time
+import glob
 from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -25,22 +26,61 @@ from bot import WEIGHTS_DIR
 log = logging.getLogger(__name__)
 
 
-def ensure_weights(model_id: str, tokenizer_id: str, cache_dir: str = WEIGHTS_DIR, verbose: bool = True) -> bool:
-    """Pre-downloads and verifies that tokenizer and model weights exist in cache_dir.
-    Uses snapshot_download for reliable, resumable downloads with progress.
+def resolve_local_snapshot(repo_id: str, weights_dir: str = WEIGHTS_DIR) -> Optional[str]:
+    """Finds the actual local snapshot directory for a given model or tokenizer.
+    Supports:
+      1. weights_dir/models--{org}--{repo}/snapshots/{hash}
+      2. weights_dir/hub/models--{org}--{repo}/snapshots/{hash} (as from CHECKPOINT.zip)
+      3. ~/.cache/huggingface/hub/models--{org}--{repo}/snapshots/{hash}
+    """
+    repo_folder = "models--" + repo_id.replace("/", "--")
+    search_dirs = [
+        weights_dir,
+        os.path.join(weights_dir, "hub"),
+        os.path.expanduser("~/.cache/huggingface/hub"),
+    ]
+    for base in search_dirs:
+        m_dir = os.path.join(base, repo_folder, "snapshots")
+        if os.path.isdir(m_dir):
+            snaps = glob.glob(os.path.join(m_dir, "*"))
+            for s in snaps:
+                if os.path.isdir(s) and any(f.endswith(".safetensors") or f.endswith(".json") for f in os.listdir(s)):
+                    return s
+    return None
+
+
+def ensure_weights(model_id: str, tokenizer_id: str, cache_dir: str = WEIGHTS_DIR, verbose: bool = True) -> Tuple[str, str]:
+    """Pre-downloads and verifies that tokenizer and model weights exist locally.
+    Returns the resolved local snapshot directory paths for both.
     """
     from huggingface_hub import snapshot_download
+
+    tok_snap = resolve_local_snapshot(tokenizer_id, cache_dir)
+    model_snap = resolve_local_snapshot(model_id, cache_dir)
+
+    if tok_snap and model_snap:
+        if verbose:
+            print("Found local model weights on disk:")
+            print(f"  Tokenizer: {tok_snap}")
+            print(f"  Model:     {model_snap}\n")
+        return tok_snap, model_snap
+
     os.makedirs(cache_dir, exist_ok=True)
-    if verbose:
-        print(f"Ensuring model weights in {cache_dir}...")
-        print(f"  Fetching tokenizer: {tokenizer_id}")
-    snapshot_download(repo_id=tokenizer_id, cache_dir=cache_dir)
-    if verbose:
-        print(f"  Fetching model:     {model_id}")
-    snapshot_download(repo_id=model_id, cache_dir=cache_dir)
+    if not tok_snap:
+        if verbose:
+            print(f"Ensuring model weights in {cache_dir}...")
+            print(f"  Fetching tokenizer: {tokenizer_id}")
+        tok_snap = snapshot_download(repo_id=tokenizer_id, cache_dir=cache_dir)
+    if not model_snap:
+        if verbose:
+            print(f"Ensuring model weights in {cache_dir}...")
+            print(f"  Fetching model:     {model_id}")
+        model_snap = snapshot_download(repo_id=model_id, cache_dir=cache_dir)
+
     if verbose:
         print("  Model weights verified successfully.\n")
-    return True
+    return tok_snap, model_snap
+
 
 
 KRONOS_COLS = ["open", "high", "low", "close", "volume", "amount"]
@@ -199,9 +239,11 @@ class KronosEngine:
         self.max_context = max_context
 
         t0 = time.time()
-        ensure_weights(model_id, tokenizer_id, cache_dir=WEIGHTS_DIR, verbose=False)
-        tokenizer = KronosTokenizer.from_pretrained(tokenizer_id, cache_dir=WEIGHTS_DIR)
-        model = Kronos.from_pretrained(model_id, cache_dir=WEIGHTS_DIR)
+        tok_path, model_path = ensure_weights(model_id, tokenizer_id, cache_dir=WEIGHTS_DIR, verbose=False)
+        log.info("Loading tokenizer from: %s", tok_path)
+        tokenizer = KronosTokenizer.from_pretrained(tok_path)
+        log.info("Loading model from: %s", model_path)
+        model = Kronos.from_pretrained(model_path)
         model.eval()
         self.predictor = KronosPredictor(model, tokenizer, device=device,
                                          max_context=max_context, clip=clip)

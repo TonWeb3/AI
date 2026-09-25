@@ -205,6 +205,8 @@ class Bot:
 
     async def _regime_loop(self) -> None:
         ev = self.candles.bar_closed[self.cfg.regime_tf]
+        # Allow entry loop preview to execute first on boot
+        await asyncio.sleep(2.0)
         while self.running:
             try:
                 self.busy = "regime forecast"
