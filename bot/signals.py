@@ -70,16 +70,23 @@ def build_plan(cfg, entry_fc: Forecast, regime_fc: Optional[Forecast],
     target_candle = peak.get("candle_index", 1)
     expiry_minutes = peak.get("expiry_minutes", 5)
 
-    # 30m Regime Evaluation
-    regime_up = regime_fc.upside_prob if regime_fc is not None else 0.5
-    regime_down = 1.0 - regime_up
-    regime_conf = max(regime_up, regime_down)
-    regime_dir = CALL if regime_up > 0.5 else PUT if regime_up < 0.5 else "TIE"
-
-    # Symmetric Regime Agreement Check
-    regime_ok = True
-    if cfg.require_regime_agree and regime_fc is not None:
-        regime_ok = (regime_dir == peak_dir) and (regime_conf >= cfg.min_regime_prob)
+    # 30m Regime Evaluation (only if require_regime_agree is enabled and regime_fc exists)
+    use_regime = bool(cfg.require_regime_agree and regime_fc is not None)
+    if use_regime:
+        regime_up = regime_fc.upside_prob
+        regime_down = 1.0 - regime_up
+        regime_conf = max(regime_up, regime_down)
+        regime_dir = CALL if regime_up > 0.5 else PUT if regime_up < 0.5 else "TIE"
+        is_opposed = (
+            (peak_dir == CALL and regime_dir == PUT and regime_conf >= cfg.min_regime_prob) or
+            (peak_dir == PUT and regime_dir == CALL and regime_conf >= cfg.min_regime_prob)
+        )
+        regime_ok = not is_opposed
+    else:
+        regime_up = 0.5
+        regime_conf = 0.5
+        regime_dir = "N/A"
+        regime_ok = True
 
     gates: Dict[str, Any] = {}
     gates["peak_prob"] = {
@@ -90,13 +97,14 @@ def build_plan(cfg, entry_fc: Forecast, regime_fc: Optional[Forecast],
         "pass": peak_conv >= cfg.min_prob and peak_dir in (CALL, PUT)
     }
 
-    gates["regime_agree"] = {
-        "value": round(regime_conf, 4),
-        "min": cfg.min_regime_prob,
-        "regime_dir": regime_dir,
-        "peak_dir": peak_dir,
-        "pass": regime_ok
-    }
+    if use_regime:
+        gates["regime_agree"] = {
+            "value": round(regime_conf, 4),
+            "min": cfg.min_regime_prob,
+            "regime_dir": regime_dir,
+            "peak_dir": peak_dir,
+            "pass": regime_ok
+        }
 
     stake = cfg.calculate_stake(balance)
 
@@ -122,7 +130,11 @@ def build_plan(cfg, entry_fc: Forecast, regime_fc: Optional[Forecast],
         plan.direction = FLAT
         plan.reason = "blocked: " + ", ".join(failed)
     else:
-        plan.reason = (f"{peak_dir} @ C#{target_candle} ({expiry_minutes}m) "
-                       f"conf={peak_conv:.1%} regime={regime_dir}({regime_conf:.1%})")
+        if use_regime:
+            plan.reason = (f"{peak_dir} @ C#{target_candle} ({expiry_minutes}m) "
+                           f"conf={peak_conv:.1%} regime={regime_dir}({regime_conf:.1%})")
+        else:
+            plan.reason = (f"{peak_dir} @ C#{target_candle} ({expiry_minutes}m) "
+                           f"conf={peak_conv:.1%} (single TF)")
 
     return plan

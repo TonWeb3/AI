@@ -35,6 +35,7 @@ class DerivCandleStore:
         self.intervals = intervals
         self.maxlen = maxlen
         self._frames: Dict[str, pd.DataFrame] = {}
+        self._forming_bars: Dict[str, dict] = {}
         self._lock = asyncio.Lock()
         self.bar_closed: Dict[str, asyncio.Event] = {i: asyncio.Event() for i in intervals}
 
@@ -60,8 +61,66 @@ class DerivCandleStore:
             log.info("Backfilled %s %s: %d closed bars, latest: %s",
                      self.client.symbol, iv, len(df), df["timestamps"].iloc[-1] if len(df) else "none")
 
-    def get(self, interval: str) -> pd.DataFrame:
-        return self._frames.get(interval, pd.DataFrame()).copy()
+    def get(self, interval: str, include_forming: bool = False) -> pd.DataFrame:
+        df = self._frames.get(interval, pd.DataFrame()).copy()
+        if not include_forming or df.empty:
+            return df
+        sec = INTERVAL_MINUTES.get(interval, 5) * 60
+        now = time.time()
+        cur_open_epoch = int(now // sec) * sec
+        cur_open_ms = cur_open_epoch * 1000
+        cur_close_ms = cur_open_ms + (sec * 1000) - 1
+
+        if df["open_time"].iloc[-1] < cur_open_ms:
+            spot = self.client.last_price or df["close"].iloc[-1]
+            fb = self._forming_bars.get(interval, {})
+            open_p = fb.get("open") if fb.get("open_time") == cur_open_ms else df["close"].iloc[-1]
+            high_p = max(float(open_p), float(spot), float(fb.get("high", spot)))
+            low_p = min(float(open_p), float(spot), float(fb.get("low", spot)))
+            vol = float(fb.get("volume", 0.0)) if fb.get("open_time") == cur_open_ms else 0.0
+            amt = float(fb.get("amount", 0.0)) if fb.get("open_time") == cur_open_ms else 0.0
+
+            forming_row = {
+                "timestamps": pd.to_datetime(cur_open_ms, unit="ms"),
+                "open_time": cur_open_ms,
+                "close_time": cur_close_ms,
+                "open": float(open_p),
+                "high": float(high_p),
+                "low": float(low_p),
+                "close": float(spot),
+                "volume": float(vol),
+                "amount": float(amt),
+            }
+            df = pd.concat([df, pd.DataFrame([forming_row])], ignore_index=True)
+        return df
+
+    def get_rolling_macro(self, macro_minutes: int = 30, base_tf: str = "5m", count: int = 60, include_forming: bool = False) -> pd.DataFrame:
+        """Synthesize rolling macro candles (e.g. 30m) from base 5m bars ending at the latest closed or forming bar."""
+        df_base = self.get(base_tf, include_forming=include_forming)
+        base_mins = INTERVAL_MINUTES.get(base_tf, 5)
+        bars_per_macro = max(1, macro_minutes // base_mins)
+        total_needed = bars_per_macro * count
+        if len(df_base) < total_needed:
+            count = len(df_base) // bars_per_macro
+            total_needed = count * bars_per_macro
+        if count < 50:
+            return pd.DataFrame()
+        tail = df_base.iloc[-total_needed:].reset_index(drop=True)
+        rows = []
+        for i in range(0, total_needed, bars_per_macro):
+            chunk = tail.iloc[i : i + bars_per_macro]
+            rows.append({
+                "timestamps": chunk["timestamps"].iloc[-1],
+                "open_time": int(chunk["open_time"].iloc[0]),
+                "close_time": int(chunk["close_time"].iloc[-1]),
+                "open": float(chunk["open"].iloc[0]),
+                "high": float(chunk["high"].max()),
+                "low": float(chunk["low"].min()),
+                "close": float(chunk["close"].iloc[-1]),
+                "volume": float(chunk["volume"].sum()),
+                "amount": float(chunk["amount"].sum()),
+            })
+        return pd.DataFrame(rows)
 
     def _append(self, interval: str, row: dict) -> bool:
         df = self._frames.get(interval)
@@ -79,11 +138,13 @@ class DerivCandleStore:
         base_sec = min(INTERVAL_MINUTES.get(iv, 5) for iv in self.intervals) * 60
         while True:
             try:
-                now = time.time()
+                now_ms = int(time.time() * 1000)
                 for iv in self.intervals:
                     sec = INTERVAL_MINUTES.get(iv, 5) * 60
                     raw = await self.client.fetch_candles(granularity=sec, count=4)
                     if raw:
+                        if raw[-1].get("close_time", 0) >= now_ms:
+                            self._forming_bars[iv] = dict(raw[-1])
                         df = self._to_df(raw)
                         for _, r in df.iterrows():
                             row = {
@@ -150,6 +211,8 @@ class Bot:
         self.started_at = time.time()
         self.status = "starting"
         self.busy = ""
+        self.eval_trigger = asyncio.Event()
+        self.last_eval_ts: float = 0.0
         self.running = True
 
     async def start(self) -> None:
@@ -185,7 +248,6 @@ class Bot:
         tasks = [
             asyncio.create_task(self.candles.poll(), name="poll"),
             asyncio.create_task(self._entry_loop(), name="entry"),
-            asyncio.create_task(self._regime_loop(), name="regime"),
             asyncio.create_task(self._manage_loop(), name="manage"),
         ]
         try:
@@ -195,12 +257,12 @@ class Bot:
                 t.cancel()
             await self.stop()
 
-    async def _forecast(self, interval: str, horizon: int, n_paths: int):
-        df = self.candles.get(interval)
+    async def _forecast(self, interval: str, horizon: int, n_paths: int, include_forming: bool = False):
+        df = self.candles.get(interval, include_forming=include_forming)
         if len(df) < 50:
             log.warning("Candle context insufficient for %s (%d/50 bars). Retrying backfill...", interval, len(df))
             await self.candles.backfill()
-            df = self.candles.get(interval)
+            df = self.candles.get(interval, include_forming=include_forming)
             if len(df) < 50:
                 raise ValueError(f"insufficient candle history for {interval}: {len(df)}/50 bars")
         return await asyncio.to_thread(
@@ -209,25 +271,21 @@ class Bot:
             self.cfg.top_k, self.cfg.top_p, self.cfg.max_batch
         )
 
-    async def _regime_loop(self) -> None:
-        ev = self.candles.bar_closed[self.cfg.regime_tf]
-        while self.running:
-            try:
-                self.busy = "regime forecast"
-                self.regime_fc = await self._forecast(
-                    self.cfg.regime_tf, self.cfg.regime_pred_len, self.cfg.n_paths_regime)
-                self.busy = ""
-                self.store.log_forecast(self.regime_fc)
-                log.info("Regime 30m: upside=%.1f%% confidence=%.1f%%",
-                         self.regime_fc.upside_prob * 100, self.regime_fc.confidence * 100)
-            except Exception as e:
-                self.busy = ""
-                self.last_error = f"regime: {e}"
-                log.exception("Regime forecast failed")
-                await asyncio.sleep(5)
-                continue
-            ev.clear()
-            await ev.wait()
+    async def _forecast_regime(self, include_forming: bool = False):
+        """Forecast macro regime trend, prioritizing rolling candles synthesized from base 5m bars."""
+        macro_mins = INTERVAL_MINUTES.get(self.cfg.regime_tf, 30)
+        df_regime = self.candles.get_rolling_macro(macro_mins, self.cfg.entry_tf, count=60, include_forming=include_forming)
+        if len(df_regime) < 50:
+            df_regime = self.candles.get(self.cfg.regime_tf, include_forming=include_forming)
+            if len(df_regime) < 50:
+                log.warning("Insufficient 30m context (%d/50 bars) for regime forecast", len(df_regime))
+                return None
+        return await asyncio.to_thread(
+            self.engine.forecast, df_regime, self.cfg.regime_tf,
+            self.cfg.regime_pred_len, self.cfg.n_paths_regime,
+            self.cfg.lookback, self.cfg.symbol, self.cfg.temperature,
+            self.cfg.top_k, self.cfg.top_p, self.cfg.max_batch
+        )
 
     async def _entry_loop(self) -> None:
         ev = self.candles.bar_closed[self.cfg.entry_tf]
@@ -249,15 +307,49 @@ class Bot:
                 log.warning("Startup preview pending: %s. Retrying in 5s...", e)
             await asyncio.sleep(5)
 
+        base_sec = INTERVAL_MINUTES.get(self.cfg.entry_tf, 5) * 60
+
         while self.running:
-            ev.clear()
-            await ev.wait()
+            now = time.time()
+            since = now % base_sec
+
+            # Compute checkpoints inside the bar (e.g. at 150s mid-check, and 300s candle close)
+            use_mid = getattr(self.cfg, "mid_candle_check", True)
+            cycle = max(30, getattr(self.cfg, "check_interval_sec", 150)) if use_mid else base_sec
+            checkpoints = sorted(list(set([i for i in range(cycle, base_sec, cycle)] + [base_sec])))
+
+            wait_sec = base_sec - since
+            is_mid = False
+            for cp in checkpoints:
+                if cp > since + 1.0:
+                    wait_sec = cp - since
+                    is_mid = (cp < base_sec)
+                    break
+
+            try:
+                self.eval_trigger.clear()
+                if is_mid:
+                    # Wait for mid-checkpoint timer OR an early trigger (e.g. contract settled)
+                    await asyncio.wait_for(self.eval_trigger.wait(), timeout=max(1.0, wait_sec))
+                    is_mid = (time.time() % base_sec) < (base_sec - 10)
+                else:
+                    # Wait for official bar_closed event OR timeout around 5m boundary
+                    await asyncio.wait_for(ev.wait(), timeout=max(1.0, wait_sec + 2.0))
+                    ev.clear()
+                    is_mid = False
+            except asyncio.TimeoutError:
+                pass
+
+            # Throttle evaluations to avoid duplicate triggers within 20s
+            if time.time() - self.last_eval_ts < 20:
+                continue
+
             self.bar_index += 1
             try:
-                await self._on_entry_bar()
+                await self._on_entry_bar(is_mid=is_mid)
             except Exception as e:
                 self.last_error = f"entry: {e}"
-                log.exception("Entry bar handling failed")
+                log.exception("Entry evaluation failed")
 
     def _roll_day(self) -> None:
         k = time.strftime("%Y-%m-%d", time.gmtime())
@@ -283,11 +375,28 @@ class Bot:
             return "cooldown"
         return ""
 
-    async def _on_entry_bar(self, preview: bool = False) -> None:
+    async def _on_entry_bar(self, preview: bool = False, is_mid: bool = False) -> None:
         t0 = time.time()
-        self.busy = "forecasting 20 candles"
+        kind = "mid-check" if is_mid else "close"
+        self.busy = f"evaluating 5m ({kind}) & 30m regime" if self.cfg.require_regime_agree else f"evaluating 5m ({kind})"
+
+        # 1. Update 30m macro regime dynamically only when require_regime_agree is enabled
+        if self.cfg.require_regime_agree:
+            try:
+                rfc = await self._forecast_regime(include_forming=is_mid)
+                if rfc is not None:
+                    self.regime_fc = rfc
+                    self.store.log_forecast(self.regime_fc)
+                    log.info("30m rolling regime (%s): upside=%.1f%% confidence=%.1f%% dir=%s",
+                             kind, self.regime_fc.upside_prob * 100, self.regime_fc.confidence * 100, self.regime_fc.direction)
+            except Exception as e:
+                log.warning("Rolling regime forecast warning: %s", e)
+        else:
+            self.regime_fc = None
+
+        # 2. 5m Entry forecast across the next 20 candles
         self.entry_fc = await self._forecast(
-            self.cfg.entry_tf, self.cfg.entry_pred_len, self.cfg.n_paths)
+            self.cfg.entry_tf, self.cfg.entry_pred_len, self.cfg.n_paths, include_forming=is_mid)
         self.store.log_forecast(self.entry_fc)
 
         spot = self.client.last_price or self.entry_fc.last_close
@@ -300,9 +409,10 @@ class Bot:
             plan.reason = f"blocked: {block}"
 
         taken = plan.tradeable and not preview
-        decision_id = self.store.log_decision(plan, self.entry_fc.last_ts.isoformat(), taken)
-        log.info("5m close | %s | Peak C#%d (%dm) conv=%.1f%% | %s | %.1fs",
-                 plan.direction, plan.target_candle, plan.expiry_minutes,
+        bar_tag = self.entry_fc.last_ts.isoformat() + (" (mid)" if is_mid else "")
+        decision_id = self.store.log_decision(plan, bar_tag, taken)
+        log.info("5m %s | %s | Peak C#%d (%dm) conv=%.1f%% | %s | %.1fs",
+                 kind, plan.direction, plan.target_candle, plan.expiry_minutes,
                  plan.conviction * 100, plan.reason, time.time() - t0)
 
         if taken:
@@ -408,13 +518,21 @@ class Bot:
 
                     await self.client.fetch_balance()
                     self.active_contract = None
+                    self.eval_trigger.set()
             except Exception as e:
                 self.last_error = f"manage: {e}"
                 log.warning("Active contract tracking error: %s", e)
 
     def _next_bar_eta(self) -> float:
-        step = INTERVAL_MINUTES.get(self.cfg.entry_tf, 5) * 60
-        return round(step - (time.time() % step), 1)
+        base_sec = INTERVAL_MINUTES.get(self.cfg.entry_tf, 5) * 60
+        use_mid = getattr(self.cfg, "mid_candle_check", True)
+        cycle = max(30, getattr(self.cfg, "check_interval_sec", 150)) if use_mid else base_sec
+        since = time.time() % base_sec
+        checkpoints = sorted(list(set([i for i in range(cycle, base_sec, cycle)] + [base_sec])))
+        for cp in checkpoints:
+            if cp > since + 1.0:
+                return round(cp - since, 1)
+        return round(base_sec - since, 1)
 
     def state(self) -> dict:
         act = None
@@ -436,6 +554,10 @@ class Bot:
                 "remaining_sec": round(rem_sec, 0),
             }
 
+        use_regime = bool(self.cfg.require_regime_agree)
+        if not use_regime:
+            self.regime_fc = None
+
         return {
             "status": self.status,
             "busy": self.busy,
@@ -449,7 +571,8 @@ class Bot:
             "spot": self.client.last_price,
             "next_bar_sec": self._next_bar_eta(),
             "entry_tf": self.cfg.entry_tf,
-            "regime_tf": self.cfg.regime_tf,
+            "regime_tf": self.cfg.regime_tf if use_regime else None,
+            "require_regime_agree": use_regime,
             "day_pnl": round(self.day_pnl, 2),
             "day_trades": self.day_trades,
             "halted": self.halted_reason,
@@ -457,5 +580,5 @@ class Bot:
             "last_error": self.last_error,
             "active_contract": act,
             "entry_forecast": self.entry_fc.summary() if self.entry_fc else None,
-            "regime_forecast": self.regime_fc.summary() if self.regime_fc else None,
+            "regime_forecast": self.regime_fc.summary() if (use_regime and self.regime_fc) else None,
         }

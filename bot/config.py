@@ -16,6 +16,7 @@ SECTIONS = {
                "entry_pred_len", "regime_pred_len", "n_paths", "n_paths_regime",
                "max_batch", "temperature", "top_p", "top_k"],
     "strategy": ["min_prob", "require_regime_agree", "min_regime_prob",
+                 "mid_candle_check", "check_interval_sec",
                  "risk_type", "risk_value", "currency", "max_concurrent",
                  "cooldown_bars", "max_trades_per_day", "max_daily_loss_usd"],
     "infra": ["db_path", "host", "port", "log_level"],
@@ -53,6 +54,8 @@ class Config:
     min_prob: float = 0.58         # min conviction required for peak candle
     require_regime_agree: bool = True
     min_regime_prob: float = 0.50  # 30m regime direction conviction threshold
+    mid_candle_check: bool = True  # evaluate signals mid-candle inside 5m & 30m bars
+    check_interval_sec: int = 150  # interval between evaluations (default 150s = 2.5m)
     risk_type: str = "percent"     # percent (% of balance) | fixed (fixed dollar amount)
     risk_value: float = 10.0       # percent or dollars
     currency: str = "USD"
@@ -167,7 +170,10 @@ HELP = {
     "regime_tf": "Macro regime trend filter timeframe (default 30m).",
     "entry_pred_len": "Number of future candles to predict (e.g. 20 candles = 100 mins at 5m).",
     "min_prob": "Minimum conviction threshold max(P(Rise), P(Fall)) required for trade execution.",
+    "require_regime_agree": "When enabled, evaluates the 30m macro regime filter alongside 5m entries. When disabled, uses strictly the single entry timeframe (5m) and hides the 30m regime filter from the dashboard.",
     "min_regime_prob": "How strongly the 30m regime must lean in the trade's direction to confirm entry.",
+    "mid_candle_check": "Enable mid-candle signal evaluations inside the 5m and 30m bars without waiting only for candle close.",
+    "check_interval_sec": "Frequency in seconds for mid-candle rechecks (default 150s = halfway through 5m bar).",
     "risk_type": "Risk per trade sizing mode: 'percent' (% of account balance) or 'fixed' (fixed dollar amount).",
     "risk_value": "Percent of balance (e.g. 10.0 = 10%) or fixed dollar amount (e.g. 10.0 = $10).",
     "n_paths": "Number of Monte Carlo future paths sampled by Kronos per forecast.",

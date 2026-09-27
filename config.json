@@ -27,7 +27,9 @@
   "strategy": {
     "min_prob": 0.58,
     "require_regime_agree": true,
-    "min_regime_prob": 0.50,
+    "min_regime_prob": 0.5,
+    "mid_candle_check": true,
+    "check_interval_sec": 150,
     "risk_type": "percent",
     "risk_value": 10.0,
     "currency": "USD",
