@@ -201,6 +201,7 @@ class Bot:
         self.active_contract: Optional[ActiveContract] = None
         self.bar_index = 0
         self.last_entry_bar = -10_000
+        self.last_entry_candle_epoch: int = -10_000
 
         self.day_key = time.strftime("%Y-%m-%d", time.gmtime())
         self.day_pnl = 0.0
@@ -327,10 +328,13 @@ class Bot:
                     break
 
             try:
-                self.eval_trigger.clear()
-                if is_mid:
+                if self.eval_trigger.is_set():
+                    self.eval_trigger.clear()
+                    is_mid = True
+                elif is_mid:
                     # Wait for mid-checkpoint timer OR an early trigger (e.g. contract settled)
                     await asyncio.wait_for(self.eval_trigger.wait(), timeout=max(1.0, wait_sec))
+                    self.eval_trigger.clear()
                     is_mid = (time.time() % base_sec) < (base_sec - 10)
                 else:
                     # Wait for official bar_closed event OR timeout around 5m boundary
@@ -371,12 +375,18 @@ class Bot:
             return self.halted_reason
         if self.day_trades >= self.cfg.max_trades_per_day:
             return "daily trade cap"
-        if self.bar_index - self.last_entry_bar < self.cfg.cooldown_bars:
+        base_sec = INTERVAL_MINUTES.get(self.cfg.entry_tf, 5) * 60
+        cur_candle_epoch = int(time.time() // base_sec) * base_sec
+        bars_since = (cur_candle_epoch - self.last_entry_candle_epoch) // base_sec
+        if bars_since < self.cfg.cooldown_bars:
             return "cooldown"
+        if self.client.balance is not None and self.client.balance < 0.35:
+            return "insufficient balance"
         return ""
 
     async def _on_entry_bar(self, preview: bool = False, is_mid: bool = False) -> None:
         t0 = time.time()
+        self.last_eval_ts = t0
         kind = "mid-check" if is_mid else "close"
         self.busy = f"evaluating 5m ({kind}) & 30m regime" if self.cfg.require_regime_agree else f"evaluating 5m ({kind})"
 
@@ -422,10 +432,11 @@ class Bot:
         """Called when user clicks Start — if there is a fresh peak signal in the current bar, enter immediately."""
         if not self.trading_enabled or self.active_contract is not None:
             return
-        if self.entry_fc is None:
-            return
+        base_sec = INTERVAL_MINUTES.get(self.cfg.entry_tf, 5) * 60
         age = time.time() - self.entry_fc.last_ts.timestamp()
-        if age > 270:
+        max_age = max(30.0, base_sec - 30.0)
+        if age > max_age:
+            log.info("Entry forecast is too old (%.1fs > %.0fs); skipping immediate entry", age, max_age)
             return
         spot = self.client.last_price or self.entry_fc.last_close
         plan = build_plan(self.cfg, self.entry_fc, self.regime_fc, spot, balance=self.client.balance)
@@ -466,7 +477,8 @@ class Bot:
             return
 
         contract_id = int(buy_res["contract_id"])
-        self.store.open_trade(decision_id, contract_id, plan, ask_price, payout, self.cfg.mode)
+        spot_exec = prop.get("spot") or plan.spot
+        self.store.open_trade(decision_id, contract_id, plan, ask_price, payout, self.cfg.mode, entry_spot=spot_exec)
 
         self.active_contract = ActiveContract(
             contract_id=contract_id,
@@ -474,14 +486,16 @@ class Bot:
             direction=plan.direction,
             target_candle=plan.target_candle,
             expiry_minutes=plan.expiry_minutes,
-            entry_spot=prop.get("spot") or plan.spot,
-            current_spot=prop.get("spot") or plan.spot,
+            entry_spot=spot_exec,
+            current_spot=spot_exec,
             buy_price=ask_price,
             payout=payout,
             opened_ts=time.time(),
             expiry_ts=time.time() + (plan.expiry_minutes * 60)
         )
         self.last_entry_bar = self.bar_index
+        base_sec = INTERVAL_MINUTES.get(self.cfg.entry_tf, 5) * 60
+        self.last_entry_candle_epoch = int(time.time() // base_sec) * base_sec
         self.day_trades += 1
         log.info("BOUGHT %s %s | Contract #%s | Stake $%.2f Payout $%.2f Expiry %dm",
                  plan.direction, plan.symbol, contract_id, ask_price, payout, plan.expiry_minutes)
@@ -496,6 +510,15 @@ class Bot:
                 cid = self.active_contract.contract_id
                 st = await self.client.contract_status(cid)
                 if not st.get("ok"):
+                    now = time.time()
+                    if self.active_contract.expiry_ts and now > self.active_contract.expiry_ts + 45:
+                        log.warning("Active contract #%s expired (%.1fs ago) and status unavailable (%s). Clearing contract.",
+                                    cid, now - self.active_contract.expiry_ts, st.get("error"))
+                        exit_spot = self.client.last_price or self.active_contract.current_spot or 0.0
+                        self.store.close_trade(cid, exit_spot, 0.0, 0.0, "expired")
+                        await self.client.fetch_balance()
+                        self.active_contract = None
+                        self.eval_trigger.set()
                     continue
 
                 self.active_contract.current_spot = st.get("current_spot") or self.active_contract.current_spot
@@ -509,7 +532,8 @@ class Bot:
                     exit_spot = st.get("current_spot") or self.client.last_price or 0.0
                     profit = st.get("profit") or 0.0
                     payout = st.get("payout") or 0.0
-                    status = "won" if profit > 0 else "lost"
+                    deriv_status = (st.get("status") or "").lower()
+                    status = deriv_status if deriv_status in ("won", "lost") else ("won" if profit > 0 else "lost")
 
                     self.store.close_trade(cid, exit_spot, profit, payout, status)
                     self.day_pnl += profit
@@ -573,6 +597,8 @@ class Bot:
             "entry_tf": self.cfg.entry_tf,
             "regime_tf": self.cfg.regime_tf if use_regime else None,
             "require_regime_agree": use_regime,
+            "min_prob": self.cfg.min_prob,
+            "min_regime_prob": self.cfg.min_regime_prob,
             "day_pnl": round(self.day_pnl, 2),
             "day_trades": self.day_trades,
             "halted": self.halted_reason,

@@ -111,15 +111,18 @@ class Store:
             return int(cur.lastrowid)
 
     def open_trade(self, decision_id: int, contract_id: int, plan, buy_price: float,
-                   payout: float, mode: str) -> int:
+                   payout: float, mode: str, entry_spot: Optional[float] = None) -> int:
+        now = time.time()
+        expiry_ts = now + (plan.expiry_minutes * 60)
+        spot = entry_spot if entry_spot is not None else plan.spot
         with self.conn() as c:
             cur = c.execute(
                 """INSERT OR REPLACE INTO trades
                    (decision_id, contract_id, symbol, contract_type, opened_ts,
-                    target_candle, expiry_minutes, entry_spot, stake, payout, status, mode)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (decision_id, contract_id, plan.symbol, plan.direction, time.time(),
-                 plan.target_candle, plan.expiry_minutes, plan.spot, buy_price, payout,
+                    expiry_ts, target_candle, expiry_minutes, entry_spot, stake, payout, status, mode)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (decision_id, contract_id, plan.symbol, plan.direction, now,
+                 expiry_ts, plan.target_candle, plan.expiry_minutes, spot, buy_price, payout,
                  "open", mode)
             )
             return int(cur.lastrowid)
@@ -171,7 +174,7 @@ class Store:
                 """SELECT COUNT(*) n, SUM(profit) pnl,
                           SUM(CASE WHEN profit > 0 THEN 1 ELSE 0 END) wins,
                           SUM(CASE WHEN profit <= 0 THEN 1 ELSE 0 END) losses
-                   FROM trades WHERE status IN ('won', 'lost')"""
+                   FROM trades WHERE status != 'open'"""
             ).fetchone()
             dec = c.execute("SELECT COUNT(*) n, SUM(taken) taken FROM decisions").fetchone()
 

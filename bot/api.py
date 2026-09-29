@@ -65,7 +65,7 @@ async def api_predictions():
     if BOT is None:
         return {"ready": False, "candidates": [], "message": "Bot initializing…"}
     if BOT.entry_fc is None:
-        msg = BOT.busy or (f"Pending: {BOT.last_error}" if BOT.last_error else "Awaiting 5m candle close & Monte Carlo forecast…")
+        msg = BOT.busy or (f"Pending: {BOT.last_error}" if BOT.last_error else f"Awaiting {BOT.cfg.entry_tf} candle close & Monte Carlo forecast…")
         return {"ready": False, "candidates": [], "message": msg, "error": BOT.last_error}
     return {
         "ready": True,
@@ -102,7 +102,7 @@ async def api_chart(history: int = 120):
     """OHLC candlestick history + Kronos Monte Carlo forecast envelope for 5m."""
     if BOT is None:
         return JSONResponse({"status": "starting"})
-    iv = "5m"
+    iv = BOT.cfg.entry_tf
     fc = BOT.entry_fc
     try:
         df = BOT.candles.get(iv)
@@ -225,6 +225,9 @@ async def api_restart(force: bool = False):
         BOT_TASK.cancel()
         with contextlib.suppress(asyncio.CancelledError, Exception):
             await BOT_TASK
+    if BOT:
+        with contextlib.suppress(Exception):
+            await BOT.stop()
 
     # Ensure model weights are ready for the active CFG before starting bot
     try:

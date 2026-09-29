@@ -626,8 +626,9 @@ function renderChart(d) {
     const top = Math.min(yO, yC);
     const hgt = Math.max(1.5, Math.abs(yC - yO));
     if (isPeak) {
+      const expM = d.summary && d.summary.peak_expiry_minutes ? d.summary.peak_expiry_minutes : (i + 1) * 5;
       g += `<line x1="${x.toFixed(1)}" y1="${PT}" x2="${x.toFixed(1)}" y2="${H - PB}" stroke="#00e5ff" stroke-dasharray="2 3" opacity="0.6"/>`;
-      g += `<text x="${x.toFixed(1)}" y="${Math.max(13, Y(h) - 5).toFixed(1)}" fill="#00e5ff" font-size="8.5" font-weight="bold" text-anchor="middle" font-family="ui-monospace">★ C#${i+1} (${(i+1)*5}m EXPIRY)</text>`;
+      g += `<text x="${x.toFixed(1)}" y="${Math.max(13, Y(h) - 5).toFixed(1)}" fill="#00e5ff" font-size="8.5" font-weight="bold" text-anchor="middle" font-family="ui-monospace">★ C#${i+1} (${expM}m EXPIRY)</text>`;
     }
     g += `<line x1="${x.toFixed(1)}" y1="${Y(h).toFixed(1)}" x2="${x.toFixed(1)}" y2="${Y(l).toFixed(1)}" stroke="${col}" stroke-width="${isPeak ? 2 : 1}" ${isPeak ? '' : 'stroke-dasharray="2 2"'}/>`;
     g += `<rect x="${(x - cW / 2).toFixed(1)}" y="${top.toFixed(1)}" width="${cW.toFixed(1)}" height="${hgt.toFixed(1)}" fill="${isPeak ? 'rgba(0, 229, 255, 0.16)' : 'none'}" stroke="${col}" stroke-width="${isPeak ? 2 : 1.2}"/>`;
@@ -734,9 +735,11 @@ async function tick() {
       renderRing('ringArc', 'ringPct', 'sigDir', 'sigSub', 'sigBar',
         ef.peak_direction === 'CALL' ? ef.peak_conviction : 1 - ef.peak_conviction,
         `Candle #${ef.peak_candle} (${ef.peak_expiry_minutes}m) · ${f(ef.peak_conviction * 100, 1)}% conv`);
-      $('sigBadge').innerHTML = ef.peak_conviction >= 0.58
-        ? '<span class="badge call">Clears 58% Threshold</span>'
-        : '<span class="badge put">Sub-Threshold</span>';
+      const minProb = s.min_prob != null ? s.min_prob : 0.58;
+      const clears = ef.peak_conviction >= minProb;
+      $('sigBadge').innerHTML = clears
+        ? `<span class="badge call">Clears ${(minProb * 100).toFixed(0)}% Threshold</span>`
+        : `<span class="badge put">Sub-Threshold (${(minProb * 100).toFixed(0)}%)</span>`;
       $('sigExpiryText').textContent = `Candle #${ef.peak_candle} (${ef.peak_expiry_minutes}m duration)`;
     }
     if (useRegime && rf) {
@@ -797,14 +800,14 @@ async function tick() {
       $('trdBody').innerHTML = trds.map(r => `
         <tr>
           <td>${new Date(r.opened_ts * 1000).toLocaleTimeString()}</td>
-          <td><span class="badge ${r.contract_type.toLowerCase()}">${r.contract_type}</span> #${r.contract_id || '—'}</td>
+          <td><span class="badge ${(r.contract_type || 'flat').toLowerCase()}">${r.contract_type || '—'}</span> #${r.contract_id || '—'}</td>
           <td>C#${r.target_candle} (${r.expiry_minutes}m)</td>
           <td>${f(r.entry_spot, 3)}</td>
           <td>${f(r.exit_spot, 3)}</td>
           <td>$${f(r.stake, 2)}</td>
           <td>$${f(r.payout, 2)}</td>
           <td style="color:${r.profit > 0 ? 'var(--up)' : 'var(--dn)'}; font-weight:700;">${r.profit != null ? (r.profit > 0 ? '+' : '') + '$' + f(r.profit, 2) : '—'}</td>
-          <td><span class="badge ${r.status === 'won' ? 'call' : 'put'}">${(r.status || 'open').toUpperCase()}</span></td>
+          <td><span class="badge ${(r.status || 'open') === 'won' ? 'call' : 'put'}">${(r.status || 'open').toUpperCase()}</span></td>
         </tr>
       `).join('');
     }

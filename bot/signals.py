@@ -70,18 +70,21 @@ def build_plan(cfg, entry_fc: Forecast, regime_fc: Optional[Forecast],
     target_candle = peak.get("candle_index", 1)
     expiry_minutes = peak.get("expiry_minutes", 5)
 
-    # 30m Regime Evaluation (only if require_regime_agree is enabled and regime_fc exists)
-    use_regime = bool(cfg.require_regime_agree and regime_fc is not None)
+    # Macro Regime Evaluation
+    use_regime = bool(cfg.require_regime_agree)
     if use_regime:
-        regime_up = regime_fc.upside_prob
-        regime_down = 1.0 - regime_up
-        regime_conf = max(regime_up, regime_down)
-        regime_dir = CALL if regime_up > 0.5 else PUT if regime_up < 0.5 else "TIE"
-        is_opposed = (
-            (peak_dir == CALL and regime_dir == PUT and regime_conf >= cfg.min_regime_prob) or
-            (peak_dir == PUT and regime_dir == CALL and regime_conf >= cfg.min_regime_prob)
-        )
-        regime_ok = not is_opposed
+        if regime_fc is None:
+            regime_up = 0.5
+            regime_conf = 0.0
+            regime_dir = "PENDING"
+            regime_ok = False
+        else:
+            regime_up = regime_fc.upside_prob
+            regime_down = 1.0 - regime_up
+            regime_conf = max(regime_up, regime_down)
+            regime_dir = CALL if regime_up > 0.5 else PUT if regime_up < 0.5 else "TIE"
+            # Macro regime must agree with trade direction and meet min_regime_prob
+            regime_ok = (regime_dir == peak_dir) and (regime_conf >= cfg.min_regime_prob)
     else:
         regime_up = 0.5
         regime_conf = 0.5
