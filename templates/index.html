@@ -720,7 +720,7 @@ async function tick() {
 
     // KPI Cards
     $('kpiSpot').textContent = s.spot != null ? f(s.spot, 3) : '—';
-    $('kpiSym').textContent = s.symbol;
+    $('kpiSym').textContent = SYMBOL_LABELS[s.symbol] ? `${s.symbol} (${SYMBOL_LABELS[s.symbol]})` : s.symbol;
     $('kpiPnl').textContent = `$${f(s.day_pnl, 2)}`;
     $('kpiPnl').className = `val ${s.day_pnl >= 0 ? 'up' : 'dn'}`;
     $('kpiTrades').textContent = `${s.day_trades} trades today`;
@@ -814,6 +814,57 @@ async function tick() {
   } catch (e) {}
 }
 
+const SYMBOL_LABELS = {
+  "frxXAUUSD": "Gold / USD",
+  "frxXAGUSD": "Silver / USD",
+  "frxXPDUSD": "Palladium / USD",
+  "frxXPTUSD": "Platinum / USD",
+  "frxXBRUSD": "Brent Crude Oil",
+  "frxXTIUSD": "WTI Crude Oil",
+  "R_100": "Volatility 100 Index",
+  "R_75": "Volatility 75 Index",
+  "R_50": "Volatility 50 Index",
+  "R_25": "Volatility 25 Index",
+  "R_10": "Volatility 10 Index",
+  "1HZ100V": "Volatility 100 (1s)",
+  "1HZ75V": "Volatility 75 (1s)",
+  "1HZ50V": "Volatility 50 (1s)",
+  "1HZ30V": "Volatility 30 (1s)",
+  "1HZ25V": "Volatility 25 (1s)",
+  "1HZ15V": "Volatility 15 (1s)",
+  "1HZ10V": "Volatility 10 (1s)",
+  "1HZ90V": "Volatility 90 (1s)",
+  "1HZ150V": "Volatility 150 (1s)",
+  "1HZ200V": "Volatility 200 (1s)",
+  "1HZ250V": "Volatility 250 (1s)",
+  "1HZ300V": "Volatility 300 (1s)",
+  "CRASH_1000": "Crash 1000 Index",
+  "CRASH_500": "Crash 500 Index",
+  "CRASH_300": "Crash 300 Index",
+  "BOOM_1000": "Boom 1000 Index",
+  "BOOM_500": "Boom 500 Index",
+  "BOOM_300": "Boom 300 Index",
+  "JD10": "Jump 10 Index",
+  "JD25": "Jump 25 Index",
+  "JD50": "Jump 50 Index",
+  "JD75": "Jump 75 Index",
+  "JD100": "Jump 100 Index",
+  "stpRNG": "Step Index",
+  "frxEURUSD": "EUR / USD",
+  "frxGBPUSD": "GBP / USD",
+  "frxUSDJPY": "USD / JPY",
+  "frxAUDUSD": "AUD / USD",
+  "frxUSDCAD": "USD / CAD",
+  "frxUSDCHF": "USD / CHF",
+  "frxEURGBP": "EUR / GBP",
+  "frxEURJPY": "EUR / JPY",
+  "frxGBPJPY": "GBP / JPY",
+  "cryBTCUSD": "Bitcoin / USD (BTC)",
+  "cryETHUSD": "Ethereum / USD (ETH)",
+  "cryLTCUSD": "Litecoin / USD (LTC)",
+  "cryXRPUSD": "Ripple / USD (XRP)",
+};
+
 /* ---------- Settings Page ---------- */
 let FIELDS = [], DIRTY = {};
 async function loadSettings() {
@@ -830,7 +881,10 @@ async function loadSettings() {
       const id = 'fld_' + fl.key;
       let input;
       if (fl.type === 'select') {
-        input = `<select id="${id}" onchange="markField('${fl.key}')">${fl.options.map(o => `<option ${o === fl.value ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
+        input = `<select id="${id}" onchange="markField('${fl.key}')">${fl.options.map(o => {
+          const lab = fl.key === 'symbol' && SYMBOL_LABELS[o] ? `${o} — ${SYMBOL_LABELS[o]}` : o;
+          return `<option value="${esc(o)}" ${o === fl.value ? 'selected' : ''}>${esc(lab)}</option>`;
+        }).join('')}</select>`;
       } else if (fl.type === 'bool') {
         input = `<input type="checkbox" id="${id}" ${fl.value ? 'checked' : ''} onchange="markField('${fl.key}')">`;
       } else {

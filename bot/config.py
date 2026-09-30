@@ -146,7 +146,22 @@ CFG = Config.load()
 
 CHOICES = {
     "mode": ["demo", "real"],
-    "symbol": ["R_100", "R_75", "R_50", "R_25", "R_10", "1HZ100V", "1HZ75V", "1HZ50V", "frxEURUSD", "cryBTCUSD"],
+    "symbol": [
+        # Gold, Metals & Commodities
+        "frxXAUUSD", "frxXAGUSD", "frxXPDUSD", "frxXPTUSD", "frxXBRUSD", "frxXTIUSD",
+        # Synthetic Continuous Volatility Indices (24/7)
+        "R_100", "R_75", "R_50", "R_25", "R_10",
+        # 1-Second Volatility Indices (1s / 1HZ, 24/7)
+        "1HZ100V", "1HZ75V", "1HZ50V", "1HZ30V", "1HZ25V", "1HZ15V", "1HZ10V", "1HZ90V", "1HZ150V", "1HZ200V", "1HZ250V", "1HZ300V",
+        # Crash & Boom Indices
+        "CRASH_1000", "CRASH_500", "CRASH_300", "BOOM_1000", "BOOM_500", "BOOM_300",
+        # Jump & Step Indices
+        "JD10", "JD25", "JD50", "JD75", "JD100", "stpRNG",
+        # Forex Major & Minor Pairs
+        "frxEURUSD", "frxGBPUSD", "frxUSDJPY", "frxAUDUSD", "frxUSDCAD", "frxUSDCHF", "frxEURGBP", "frxEURJPY", "frxGBPJPY",
+        # Cryptocurrencies (24/7)
+        "cryBTCUSD", "cryETHUSD", "cryLTCUSD", "cryXRPUSD",
+    ],
     "entry_tf": ["1m", "5m", "15m"],
     "regime_tf": ["15m", "30m", "1h", "4h"],
     "risk_type": ["percent", "fixed"],
@@ -164,7 +179,7 @@ NEEDS_RESTART = {
 SECRET_FIELDS = {"token"}
 
 HELP = {
-    "symbol": "Deriv market symbol (e.g. Volatility 100 Index R_100, R_75, EUR/USD).",
+    "symbol": "Deriv market symbol (e.g. Gold frxXAUUSD, Volatility 100 R_100, 1HZ100V, EUR/USD frxEURUSD, Bitcoin cryBTCUSD).",
     "mode": "Trading account mode: demo or real.",
     "entry_tf": "Entry candle timeframe (default 5m).",
     "regime_tf": "Macro regime trend filter timeframe (default 30m).",
